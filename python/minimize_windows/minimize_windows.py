@@ -1,4 +1,17 @@
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  import pygetwindow as gw
+"""
+Script: minimize_windows.py
+Purpose: Selectively minimizes Windows-based windows based on configurable criteria
+         - Minimizes windows matching specified keywords (media viewers, image files, etc.)
+         - Minimizes browser windows (Brave, Firefox) except those with whitelisted content
+         - Minimizes all File Explorer windows
+         - Supports exception lists to preserve specific windows
+Usage: python minimize_windows.py
+       Customize keywords_to_minimize, exceptions, and browser_whitelist lists as needed
+Requirements: pygetwindow, pywin32
+              Install: pip install pygetwindow pywin32
+"""
+
+import pygetwindow as gw
 import win32gui
 import win32con
 from urllib.parse import urlparse

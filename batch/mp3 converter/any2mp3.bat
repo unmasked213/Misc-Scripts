@@ -1,10 +1,16 @@
+:: Script: any2mp3.bat
+:: Purpose: Converts .m4a and .opus audio files to .mp3 format at 320 kbps CBR
+::          - Leaves original files untouched (no deletion)
+::          - Skips conversion if an .mp3 with the same name already exists
+::          - Encodes at constant bitrate 320 kbps (highest standard MP3 quality)
+::          - Processes all compatible files in the current directory
+:: Usage: Place this batch file in the folder containing your audio files, then double-click to run
+::        The script will convert all .m4a and .opus files to .mp3 format
+:: Dependencies: FFmpeg must be installed and available in PATH
+::               Download from: https://ffmpeg.org/download.html
+
 @echo off
 setlocal enableextensions enabledelayedexpansion
-
-:: any2mp3.bat — Convert .m4a and .opus in this folder to .mp3 @ 320 kbps
-:: - Leaves originals untouched
-:: - Skips if an .mp3 with the same basename already exists
-:: - Requires ffmpeg in PATH
 
 :: ---- Settings ----
 set "CBR_KBPS=320k"

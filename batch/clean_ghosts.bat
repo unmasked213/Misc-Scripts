@@ -1,3 +1,10 @@
+:: Script: clean_ghosts.bat
+:: Purpose: Kills duplicate AI assistant and browser processes
+::          Keeps one instance of Claude, ChatGPT, and Cursor
+::          Removes all Brave browser, Electron, and LGHub processes
+:: Usage: Double-click to run, or execute from command line
+:: Dependencies: Windows tasklist and taskkill commands (built-in)
+
 @echo off
 echo Killing duplicate AI and browser processes...
 
