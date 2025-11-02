@@ -1,6 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+Script: ha_dashboard_launcher.py
+Purpose: Launches a frameless, borderless Home Assistant dashboard in a webview window
+         - Displays on the 3rd monitor (or primary if unavailable)
+         - Auto-refreshes every 5 minutes to keep data current
+         - Creates a draggable top bar for window movement
+         - Disables text selection for a cleaner dashboard experience
+Usage: python ha_dashboard_launcher.py
+       Configure URL and INTERVAL constants as needed
+Requirements: pywebview, screeninfo
+              Install: pip install pywebview screeninfo
+"""
+
 import webview
 import threading
 import time
