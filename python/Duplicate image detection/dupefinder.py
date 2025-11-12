@@ -56,6 +56,7 @@ import sys
 import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import blake2b
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -384,6 +385,21 @@ def load_image_normalized(path: Path, cfg) -> Optional[np.ndarray]:
             return np.array(im)
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         return None
+
+def build_thumbnail(img: np.ndarray, max_px: int) -> Image.Image:
+    """
+    Create a thumbnail from a numpy array image.
+
+    Args:
+        img: RGB numpy array
+        max_px: Maximum dimension (width or height) in pixels
+
+    Returns:
+        PIL Image resized to fit within max_px x max_px
+    """
+    pil_img = Image.fromarray(img)
+    pil_img.thumbnail((max_px, max_px), Image.LANCZOS)
+    return pil_img
 
 def dct_2d(arr: np.ndarray) -> np.ndarray:
     return cv2.dct(arr.astype(np.float32))
@@ -718,7 +734,7 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
 def write_json_report(out_dir: Path, pairs: List[PairDecision], clusters: List[Cluster], cfg, errors: List[Tuple[Path, str]]) -> Path:
     report = {
         "config": cfg,
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "stats": {
             "pairs_compared": len(pairs),
             "clusters": len(clusters),
