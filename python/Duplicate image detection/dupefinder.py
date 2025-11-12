@@ -13,7 +13,7 @@ Key features:
  * Normalises each image to a canonical orientation and colour space.
  * Computes an 8×8 perceptual hash (pHash) for up to eight canonical
    rotations/flips of every image.  Hashes are used to quickly discard
-   dissimilar files and for a fast “quick” mode where only exact/near matches
+   dissimilar files and for a fast "quick" mode where only exact/near matches
    are reported.
  * Extracts ORB keypoints and binary descriptors using OpenCV, then matches
    descriptors with a brute‑force Hamming matcher and applies RANSAC to find
@@ -25,7 +25,7 @@ Key features:
    different means unrelated.
  * Groups images into clusters by connecting pairs labelled duplicate or
    variant and then prunes members which do not meet the variant threshold
-   relative to the chosen representative to avoid “chain drift”.
+   relative to the chosen representative to avoid "chain drift".
  * Writes a JSON report describing all pairwise decisions, a CSV file of
    decisions and a simple HTML report with thumbnails for human review.
  * Maintains a persistent cache of fingerprints in a SQLite database keyed
@@ -39,6 +39,8 @@ disables OpenCV threading to ensure reproducible results across runs.
 Usage:
 
     python dupefinder.py INPUT_DIR --output OUTPUT_DIR
+
+Or double-click to run interactively.
 
 See `--help` for full usage.
 """
@@ -58,9 +60,20 @@ from hashlib import blake2b
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import cv2  # type: ignore
-import numpy as np  # type: ignore
-from PIL import Image, UnidentifiedImageError, ImageFile  # type: ignore
+try:
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+    from PIL import Image, UnidentifiedImageError, ImageFile  # type: ignore
+except ImportError as e:
+    print(f"\n{'='*70}")
+    print("ERROR: Missing required dependency")
+    print(f"{'='*70}")
+    print(f"\n{e}\n")
+    print("Please install required packages:")
+    print("  pip install opencv-python-headless numpy pillow")
+    print(f"\n{'='*70}")
+    input("\nPress Enter to exit...")
+    sys.exit(1)
 
 # Pillow can throw DecompressionBombError on extremely large images.
 Image.MAX_IMAGE_PIXELS = 178956970
@@ -165,7 +178,7 @@ DEFAULT_CFG = {
 class FileId:
     path: Path
     size: int
-    mtime_ns: int
+    mtime_ms: int
     device: Optional[int]
     inode: Optional[int]
     quick_fp: str
@@ -221,7 +234,7 @@ class FingerprintCache:
             CREATE TABLE IF NOT EXISTS fingerprints (
                 path TEXT NOT NULL,
                 size INTEGER NOT NULL,
-                mtime_ns INTEGER NOT NULL,
+                mtime_ms INTEGER NOT NULL,
                 device INTEGER,
                 inode INTEGER,
                 quick_fp TEXT NOT NULL,
@@ -252,11 +265,11 @@ class FingerprintCache:
         with self._lock:
             cur = self.conn.cursor()
             cur.execute(
-                "REPLACE INTO fingerprints (path, size, mtime_ns, device, inode, quick_fp, phash, keypoints) VALUES (?,?,?,?,?,?,?,?);",
+                "REPLACE INTO fingerprints (path, size, mtime_ms, device, inode, quick_fp, phash, keypoints) VALUES (?,?,?,?,?,?,?,?);",
                 (
                     str(fid.path),
                     fid.size,
-                    fid.mtime_ns,
+                    fid.mtime_ms,
                     fid.device,
                     fid.inode,
                     fid.quick_fp,
@@ -293,7 +306,8 @@ def file_id_from_path(path: Path, cfg) -> FileId:
     device = stat.st_dev if cfg["cache"]["use_inode"] else None
     inode = stat.st_ino if cfg["cache"]["use_inode"] else None
     quick_fp = compute_quick_fingerprint(path, cfg["cache"]["quick_fingerprint_bytes"])
-    return FileId(path=path, size=stat.st_size, mtime_ns=stat.st_mtime_ns, device=device, inode=inode, quick_fp=quick_fp)
+    mtime_ms = stat.st_mtime_ns // 1_000_000
+    return FileId(path=path, size=stat.st_size, mtime_ms=mtime_ms, device=device, inode=inode, quick_fp=quick_fp)
 
 def list_image_files(root: Path, cfg) -> List[Path]:
     from fnmatch import fnmatch
@@ -836,11 +850,21 @@ def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_path = Path(cfg["cache"]["path"])
     cache = FingerprintCache(cache_path)
+    
+    print(f"\nScanning directory: {input_dir}")
     files = list_image_files(input_dir, cfg)
+    print(f"Found {len(files)} image files")
+    
+    if len(files) == 0:
+        print("\nNo images found. Check your input directory.")
+        cache.close()
+        return None, None, None
+    
     stats: Dict[Path, Tuple[int, int]] = {}
     fingerprints: Dict[Path, Fingerprint] = {}
     errors: List[Tuple[Path, str]] = []
     detector = get_feature_detector(cfg)
+    
     def worker(p):
         fp = compute_fingerprint(p, cfg, detector, cache)
         if fp is None:
@@ -850,18 +874,29 @@ def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_
             return p, fp, None
         h, w = img.shape[:2]
         return p, fp, (w, h)
+    
+    print("\nComputing fingerprints...")
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(worker, p) for p in files]
+        completed = 0
         for fut in concurrent.futures.as_completed(futures):
             p, fp, wh = fut.result()
+            completed += 1
+            if completed % 10 == 0 or completed == len(files):
+                print(f"  Progress: {completed}/{len(files)}", end="\r")
             if fp is None or wh is None:
                 errors.append((p, "decode_failed"))
                 continue
             fingerprints[p] = fp
             stats[p] = wh
+    print(f"\n  Processed {len(fingerprints)} images successfully")
+    
     buckets = assign_buckets(list(stats.keys()), stats, cfg)
     pairs: List[PairDecision] = []
+    
+    print("\nComparing images...")
+    total_comparisons = 0
     for bucket_key, paths in buckets.items():
         if len(paths) < 2:
             continue
@@ -879,6 +914,7 @@ def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_
                 candidate_pairs.append((p, q))
         if not candidate_pairs:
             continue
+        
         def compare_pair(pair: Tuple[Path, Path]) -> PairDecision:
             p, q = pair
             fp_a = fingerprints[p]
@@ -916,16 +952,28 @@ def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_
                 return PairDecision(a=p, b=q, label="different", metrics=geo_metrics)
             label = decide_label(geo_metrics, fp_a, fp_b, cfg)
             return PairDecision(a=p, b=q, label=label, metrics=geo_metrics)
+        
         max_workers = min(4, len(candidate_pairs))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
             for result in pool.map(compare_pair, candidate_pairs):
                 pairs.append(result)
+                total_comparisons += 1
+                if total_comparisons % 50 == 0:
+                    print(f"  Comparisons: {total_comparisons}", end="\r")
+    
+    print(f"\n  Total comparisons: {total_comparisons}")
+    
+    print("\nBuilding clusters...")
     clusters = build_clusters(pairs, cfg, fingerprints, stats)
+    print(f"  Found {len(clusters)} clusters")
+    
+    print("\nGenerating reports...")
     json_path = write_json_report(out_dir, pairs, clusters, cfg, errors)
     csv_path = None
     if cfg["report"]["write_csv"]:
         csv_path = write_csv_report(out_dir, pairs)
     html_path = write_html_report(out_dir, clusters, cfg, detector)
+    
     cache.close()
     return json_path, csv_path, html_path
 
@@ -980,28 +1028,130 @@ def load_config(config_path: Optional[Path]) -> dict:
     validate_config(cfg)
     return cfg
 
-def main():
-    parser = argparse.ArgumentParser(description="Detect duplicate and variant images in a folder.")
-    parser.add_argument("input", help="Input directory to scan")
-    parser.add_argument("-o", "--output", required=True, help="Output directory for reports")
-    parser.add_argument("--config", type=str, help="Path to JSON or YAML configuration file")
-    parser.add_argument("--quick", action="store_true", help="Fast mode using only perceptual hash; skip geometry checks")
-    parser.add_argument("--rebuild-cache", action="store_true", help="Ignore existing cache and recompute fingerprints")
-    parser.add_argument("--dry-run", action="store_true", help="Process files but do not write reports")
-    args = parser.parse_args()
-    input_dir = Path(args.input).resolve()
-    out_dir = Path(args.output).resolve()
-    cfg = load_config(Path(args.config) if args.config else None)
-    cv2.setNumThreads(cfg["determinism"]["opencv_threads"])
-    np.random.seed(cfg["determinism"]["seed"])
-    json_path, csv_path, html_path = process_directory(input_dir, out_dir, cfg, quick=args.quick, rebuild_cache=args.rebuild_cache, dry_run=args.dry_run)
-    if args.dry_run:
-        print("Dry run complete. Reports not written.")
+def interactive_mode():
+    print("\n" + "="*70)
+    print("DUPLICATE IMAGE FINDER - Interactive Mode")
+    print("="*70)
+    
+    while True:
+        print("\nEnter the directory containing images to scan:")
+        print("(Drag and drop a folder here, or type the path)")
+        input_path = input("> ").strip().strip('"').strip("'")
+        
+        if not input_path:
+            print("\nNo path provided.")
+            continue
+        
+        input_dir = Path(input_path)
+        if not input_dir.exists():
+            print(f"\nError: Directory does not exist: {input_dir}")
+            retry = input("Try again? (y/n): ").strip().lower()
+            if retry != 'y':
+                return None
+            continue
+        
+        if not input_dir.is_dir():
+            print(f"\nError: Not a directory: {input_dir}")
+            retry = input("Try again? (y/n): ").strip().lower()
+            if retry != 'y':
+                return None
+            continue
+        
+        break
+    
+    print("\nEnter output directory for reports:")
+    print("(Press Enter to use: ./dupefinder_results)")
+    output_path = input("> ").strip().strip('"').strip("'")
+    
+    if not output_path:
+        output_dir = Path("./dupefinder_results")
     else:
-        print("JSON report:", json_path)
-        if csv_path:
-            print("CSV report:", csv_path)
-        print("HTML report:", html_path)
+        output_dir = Path(output_path)
+    
+    print(f"\nInput:  {input_dir}")
+    print(f"Output: {output_dir}")
+    
+    quick = False
+    use_quick = input("\nUse quick mode (hash-only, faster)? (y/n): ").strip().lower()
+    if use_quick == 'y':
+        quick = True
+    
+    return {
+        'input': input_dir,
+        'output': output_dir,
+        'config': None,
+        'quick': quick,
+        'rebuild_cache': False,
+        'dry_run': False,
+    }
+
+def main():
+    try:
+        if len(sys.argv) == 1:
+            params = interactive_mode()
+            if params is None:
+                print("\nCancelled.")
+                input("\nPress Enter to exit...")
+                return
+            
+            input_dir = params['input']
+            out_dir = params['output']
+            cfg = load_config(params['config'])
+            quick = params['quick']
+            rebuild_cache = params['rebuild_cache']
+            dry_run = params['dry_run']
+        else:
+            parser = argparse.ArgumentParser(description="Detect duplicate and variant images in a folder.")
+            parser.add_argument("input", help="Input directory to scan")
+            parser.add_argument("-o", "--output", required=True, help="Output directory for reports")
+            parser.add_argument("--config", type=str, help="Path to JSON or YAML configuration file")
+            parser.add_argument("--quick", action="store_true", help="Fast mode using only perceptual hash; skip geometry checks")
+            parser.add_argument("--rebuild-cache", action="store_true", help="Ignore existing cache and recompute fingerprints")
+            parser.add_argument("--dry-run", action="store_true", help="Process files but do not write reports")
+            args = parser.parse_args()
+            
+            input_dir = Path(args.input).resolve()
+            out_dir = Path(args.output).resolve()
+            cfg = load_config(Path(args.config) if args.config else None)
+            quick = args.quick
+            rebuild_cache = args.rebuild_cache
+            dry_run = args.dry_run
+        
+        cv2.setNumThreads(cfg["determinism"]["opencv_threads"])
+        np.random.seed(cfg["determinism"]["seed"])
+        
+        json_path, csv_path, html_path = process_directory(
+            input_dir, out_dir, cfg, 
+            quick=quick, 
+            rebuild_cache=rebuild_cache, 
+            dry_run=dry_run
+        )
+        
+        if json_path is None:
+            print("\nProcessing failed or no images found.")
+        elif dry_run:
+            print("\nDry run complete. Reports not written.")
+        else:
+            print("\n" + "="*70)
+            print("RESULTS")
+            print("="*70)
+            print(f"\nJSON report: {json_path}")
+            if csv_path:
+                print(f"CSV report:  {csv_path}")
+            print(f"HTML report: {html_path}")
+            print("\nOpen the HTML report in your browser to view results.")
+        
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user.")
+    except Exception as e:
+        print(f"\n{'='*70}")
+        print("ERROR")
+        print(f"{'='*70}")
+        print(f"\n{type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        input("\nPress Enter to exit...")
 
 if __name__ == "__main__":
     main()
