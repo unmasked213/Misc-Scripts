@@ -25,10 +25,11 @@ A collection of utility scripts for Windows automation, media processing, and sy
 
 | Script | Purpose | Requirements |
 |--------|---------|--------------|
-| [find_duplicates.py](python/Duplicate%20image%20detection/find_duplicates.py) | Finds duplicate or similar images in a folder and generates an HTML report. Features fast mode (perceptual hashing) and thorough mode (FFmpeg-based). Extracts EXIF data and organizes groups by size and similarity. | `Pillow`, `imagehash`, FFmpeg (for thorough mode) |
+| [dupefinder.py](python/Duplicate%20image%20detection/dupefinder.py) | Advanced duplicate and near-duplicate image detector using perceptual hashing and ORB feature matching with RANSAC. Detects exact duplicates, crops, resizes, rotations, and edits. Generates interactive HTML reports with thumbnails for review. Includes persistent SQLite cache for fast subsequent runs. Double-click friendly with interactive mode. | `opencv-python-headless`, `numpy`, `Pillow` |
+| [delete_marked.py](python/Duplicate%20image%20detection/delete_marked.py) | Helper script for dupefinder reports. Reads `to_delete.json` file (created by marking images in the HTML report) and safely moves files to a `_trash` directory for review before permanent deletion. Double-click friendly. | Python 3.9+ |
+| [folder_stats.py](python/media_stats/folder_stats.py) | Scans folders recursively and generates top 10 leaderboards by storage size and file count. Shows total size/count per subfolder including all descendants. Double-click friendly. | Python 3.9+ |
 | [image_stats.py](python/media_stats/image_stats.py) | Recursively analyzes images in subfolders. Groups results by resolution (landscape/portrait) and file size buckets. Shows progress and generates summary statistics. | `Pillow` |
-| [video_stats.py](python/media_stats/video_stats.py) | Recursively analyzes videos using ffprobe. Groups results by resolution (landscape/portrait) and duration buckets. Shows progress and handles corrupt files gracefully. | `ffprobe` (FFmpeg) |
-| [video_stats_v2.py](python/media_stats/video_stats_v2.py) | Enhanced version of video_stats.py with additional features and improved analysis. | `ffprobe` (FFmpeg) |
+| [video_stats_v2.py](python/media_stats/video_stats_v2.py) | Recursively analyzes videos using ffprobe. Groups results by resolution (landscape/portrait) and duration buckets. Shows progress and handles corrupt files gracefully. | `ffprobe` (FFmpeg) |
 
 #### File Management
 
@@ -49,14 +50,14 @@ pip install pygetwindow pywin32
 pip install keyboard pyautogui
 
 # Media analysis scripts
-pip install Pillow imagehash
+pip install opencv-python-headless numpy Pillow
 ```
 
 ### External Tools
 
 Some scripts require external tools to be installed:
 
-- **FFmpeg**: Required for `any2mp3.bat`, `find_duplicates.py` (thorough mode), `video_stats.py`, and `video_stats_v2.py`
+- **FFmpeg**: Required for `any2mp3.bat` and `video_stats_v2.py`
   - Download from: https://ffmpeg.org/download.html
   - Ensure it's added to your system PATH
 
@@ -80,7 +81,18 @@ cd python/script_folder
 python script_name.py
 ```
 
-Some scripts (like `find_duplicates.py`) should be placed in the target folder before running.
+Many scripts are **double-click friendly** and will prompt for input or use interactive mode when run without arguments:
+
+- `dupefinder.py` - Interactive mode prompts for input/output directories
+- `delete_marked.py` - Processes `to_delete.json` in current directory
+- `folder_stats.py` - Analyzes the folder it's located in
+
+Scripts can also be run with command-line arguments for automation:
+
+```bash
+python dupefinder.py INPUT_DIR --output OUTPUT_DIR
+python folder_stats.py --path "X:/Media" --limit 10
+```
 
 ## Project Structure
 
@@ -98,6 +110,31 @@ Misc-Scripts/
     ├── minimize_windows/
     └── create_list_of_filenames/
 ```
+
+## Featured Workflows
+
+### Duplicate Image Detection
+
+The duplicate image detection workflow uses advanced computer vision to find similar images:
+
+1. **Run dupefinder.py** on your image directory:
+   ```bash
+   python dupefinder.py "D:\Photos" --output "D:\Photos\dupes_report"
+   ```
+
+2. **Review the HTML report**: Open the generated HTML file to see clusters of similar images with thumbnails
+
+3. **Mark images for deletion**: Click images in the report to mark them (they'll be outlined in red). Click "Export deletion list" to save `to_delete.json`
+
+4. **Run delete_marked.py**: Double-click or run in the same directory as `to_delete.json` to move marked files to `_trash`
+
+5. **Review and confirm**: Check the `_trash` folder and permanently delete when satisfied
+
+**Key Features:**
+- Detects exact duplicates, crops, resizes, and rotated images
+- Persistent cache makes subsequent runs extremely fast
+- Safe two-step deletion process with manual review
+- Interactive HTML reports with similarity scoring
 
 ## Contributing
 
