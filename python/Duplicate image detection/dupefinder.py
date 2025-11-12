@@ -98,7 +98,8 @@ DEFAULT_CFG = {
         "follow_symlinks": False,
         "resolve_symlinks_once": True,
         "max_image_pixels": 178956970,
-        "thumbnail_max_px": 800,
+        # Reduced thumbnail size for faster report loading
+        "thumbnail_max_px": 400,
     },
     "normalize": {
         "target_mode": "RGB",
@@ -744,71 +745,65 @@ def write_json_report(out_dir: Path, pairs: List[PairDecision], clusters: List[C
         "clusters": [
             {
                 "id": c.id,
-                "representative": str(c.representative),
                 "members": [str(p) for p in c.members],
+                "representative": str(c.representative),
                 "member_similarities": c.member_similarities,
             }
             for c in clusters
         ],
         "errors": [
-            {"path": str(p), "error": code}
-            for p, code in errors
+            {"path": str(p), "error": err}
+            for p, err in errors
         ],
     }
-    json_path = out_dir / "report.json"
-    with json_path.open("w", encoding="utf-8") as f:
+    out_path = out_dir / "report.json"
+    with out_path.open("w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
-    return json_path
+    return out_path
 
 def write_csv_report(out_dir: Path, pairs: List[PairDecision]) -> Path:
-    csv_path = out_dir / "pairs.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
+    out_path = out_dir / "pairs.csv"
+    with out_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "file_a",
-            "file_b",
-            "label",
-            "phash_similarity",
-            "inliers",
-            "coverage_a",
-            "coverage_b",
-            "residual_median_px",
-            "model",
-        ])
+        writer.writerow(["a", "b", "label", "phash_similarity", "inliers", "coverage_a", "coverage_b", "residual_median_px", "model"])
         for pd in pairs:
-            writer.writerow(
-                [
-                    str(pd.a),
-                    str(pd.b),
-                    pd.label,
-                    f"{pd.metrics.phash_similarity:.4f}",
-                    pd.metrics.inliers,
-                    f"{pd.metrics.coverage_a:.4f}",
-                    f"{pd.metrics.coverage_b:.4f}",
-                    f"{pd.metrics.residual_median_px:.4f}",
-                    pd.metrics.model,
-                ]
-            )
-    return csv_path
-
-def build_thumbnail(img: np.ndarray, max_px: int) -> Image.Image:
-    h, w = img.shape[:2]
-    scale = min(max_px / max(h, w), 1.0)
-    new_size = (int(w * scale), int(h * scale))
-    img_pil = Image.fromarray(img)
-    return img_pil.resize(new_size, Image.LANCZOS)
+            writer.writerow([
+                str(pd.a), str(pd.b), pd.label,
+                f"{pd.metrics.phash_similarity:.4f}",
+                pd.metrics.inliers,
+                f"{pd.metrics.coverage_a:.4f}",
+                f"{pd.metrics.coverage_b:.4f}",
+                f"{pd.metrics.residual_median_px:.4f}",
+                pd.metrics.model,
+            ])
+    return out_path
 
 def write_html_report(out_dir: Path, clusters: List[Cluster], cfg, detector) -> Path:
+    """
+    Generate an interactive HTML report for reviewing duplicate clusters.  Each cluster
+    page presents thumbnails with colour‑coded borders based on similarity to the
+    cluster representative, allows the user to click thumbnails to mark them
+    for deletion and provides a button to export the marked list as a JSON file.
+
+    The export uses browser localStorage to persist selections across cluster
+    pages.  Marked images are not deleted by this script – a separate helper
+    (see delete_marked.py) reads the JSON and safely moves files to a trash
+    directory.
+    """
     html_dir = out_dir / "html"
     thumbs_dir = html_dir / "thumbnails"
     html_dir.mkdir(parents=True, exist_ok=True)
     thumbs_dir.mkdir(parents=True, exist_ok=True)
     pages: List[Tuple[str, str]] = []
+    # Map of cluster id to its representative
+    rep_map: Dict[str, Path] = {}
+    for cluster in clusters:
+        rep_map[cluster.id] = cluster.representative
     for cluster in clusters:
         page_name = f"{cluster.id}.html"
         title = f"Cluster {cluster.id} ({len(cluster.members)} files)"
         html_file = html_dir / page_name
-        rows = []
+        rows: List[Tuple[Path, float, Path]] = []
         for p in cluster.members:
             img = load_image_normalized(p, cfg)
             if img is None:
@@ -817,29 +812,144 @@ def write_html_report(out_dir: Path, clusters: List[Cluster], cfg, detector) -> 
             thumb_path = thumbs_dir / (p.name + ".jpg")
             thumb.save(thumb_path, format="JPEG")
             sim = cluster.member_similarities.get(str(p), 0.0)
-            caption = f"{p.name} ({sim:.2f})"
-            rows.append((thumb_path, caption, p))
+            rows.append((thumb_path, sim, p))
         with html_file.open("w", encoding="utf-8") as f:
             f.write("<html><head><meta charset='utf-8'><title>")
             f.write(title)
-            f.write("</title><style>body{font-family:sans-serif;} .grid{display:flex;flex-wrap:wrap;} .item{margin:5px;} .item img{max-width:200px;max-height:200px;display:block;} .caption{text-align:center;font-size:0.8em;}</style></head><body>")
-            f.write(f"<h1>{title}</h1>")
+            f.write("</title>")
+            f.write("<style>")
+            f.write("body{font-family:sans-serif;margin:0;padding:1em;}\n")
+            f.write("header{position:sticky;top:0;background:#fff;padding:0.5em 0;z-index:10;border-bottom:1px solid #ccc;}\n")
+            f.write("button{padding:0.5em 1em;font-size:1em;}\n")
+            f.write("button:disabled{opacity:0.5;cursor:not-allowed;}\n")
+            f.write(".grid{display:flex;flex-wrap:wrap;}\n")
+            f.write(".item{margin:5px;position:relative;}\n")
+            f.write(".item img{height:180px;display:block;cursor:pointer;border:4px solid transparent;box-sizing:border-box;}\n")
+            f.write(".item img.rep{border-color:#2196f3;}\n")
+            f.write(".item img.sim-high{border-color:#4caf50;}\n")
+            f.write(".item img.sim-med{border-color:#ffc107;}\n")
+            f.write(".item img.sim-low{border-color:#f44336;}\n")
+            f.write(".item img.marked{outline:4px solid red;filter:brightness(0.7);}\n")
+            f.write(".caption{text-align:center;font-size:0.8em;}\n")
+            f.write("</style></head><body>")
+            f.write("<header><button id='export' disabled>Export deletion list (<span id='count'>0</span>)</button></header>")
+            f.write(f"<h2>{title}</h2>")
             f.write("<div class='grid'>")
-            for thumb_path, caption, pth in rows:
+            rep_path = rep_map.get(cluster.id)
+            for thumb_path, sim, pth in rows:
+                classes: List[str] = []
+                if rep_path and pth == rep_path:
+                    classes.append("rep")
+                else:
+                    if sim >= 0.95:
+                        classes.append("sim-high")
+                    elif sim >= 0.85:
+                        classes.append("sim-med")
+                    else:
+                        classes.append("sim-low")
                 f.write("<div class='item'>")
-                f.write(f"<a href='{pth.as_posix()}'><img src='thumbnails/{thumb_path.name}' alt='{caption}'></a>")
-                f.write(f"<div class='caption'>{caption}</div>")
+                pct = int(sim * 100)
+                cls_str = " ".join(classes)
+                f.write(f"<a href='{pth.as_posix()}'><img class='thumb {cls_str}' data-path='{pth.as_posix()}' data-sim='{sim:.4f}' src='thumbnails/{thumb_path.name}' alt='{pth.name}'></a>")
+                f.write(f"<div class='caption'>{pth.name}<br><small>{pct}% match</small></div>")
                 f.write("</div>")
-            f.write("</div></body></html>")
+            f.write("</div>")
+            # JavaScript for marking and export
+            f.write("<script>\n")
+            f.write("(function(){\n")
+            f.write("function updateExport(){\n")
+            f.write("  const marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+            f.write("  const btn = document.getElementById('export');\n")
+            f.write("  const cnt = document.getElementById('count');\n")
+            f.write("  cnt.textContent = marked.length;\n")
+            f.write("  btn.disabled = (marked.length === 0);\n")
+            f.write("}\n")
+            f.write("function toggleMark(img){\n")
+            f.write("  const path = img.dataset.path;\n")
+            f.write("  let marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+            f.write("  const idx = marked.indexOf(path);\n")
+            f.write("  if(idx >= 0){\n")
+            f.write("    marked.splice(idx,1);\n")
+            f.write("    img.classList.remove('marked');\n")
+            f.write("  } else {\n")
+            f.write("    marked.push(path);\n")
+            f.write("    img.classList.add('marked');\n")
+            f.write("  }\n")
+            f.write("  localStorage.setItem('markedPaths', JSON.stringify(marked));\n")
+            f.write("  updateExport();\n")
+            f.write("}\n")
+            f.write("document.addEventListener('DOMContentLoaded', function(){\n")
+            f.write("  const imgs = document.querySelectorAll('img.thumb');\n")
+            f.write("  const marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+            f.write("  imgs.forEach(function(img){\n")
+            f.write("    if(marked.indexOf(img.dataset.path) >= 0){\n")
+            f.write("      img.classList.add('marked');\n")
+            f.write("    }\n")
+            f.write("    img.addEventListener('click', function(ev){\n")
+            f.write("      ev.preventDefault();\n")
+            f.write("      toggleMark(img);\n")
+            f.write("    });\n")
+            f.write("  });\n")
+            f.write("  document.getElementById('export').addEventListener('click', function(){\n")
+            f.write("    const marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+            f.write("    const data = JSON.stringify(marked, null, 2);\n")
+            f.write("    const blob = new Blob([data], {type:'application/json'});\n")
+            f.write("    const url = URL.createObjectURL(blob);\n")
+            f.write("    const a = document.createElement('a');\n")
+            f.write("    a.href = url;\n")
+            f.write("    a.download = 'to_delete.json';\n")
+            f.write("    document.body.appendChild(a);\n")
+            f.write("    a.click();\n")
+            f.write("    document.body.removeChild(a);\n")
+            f.write("    URL.revokeObjectURL(url);\n")
+            f.write("  });\n")
+            f.write("  updateExport();\n")
+            f.write("});\n")
+            f.write("})();\n")
+            f.write("</script>")
+            f.write("</body></html>")
         pages.append((page_name, title))
+    # Build index page
     index_file = html_dir / "index.html"
     with index_file.open("w", encoding="utf-8") as f:
-        f.write("<html><head><meta charset='utf-8'><title>Duplicate Finder Report</title><style>body{font-family:sans-serif;} ul{list-style:none;padding:0;} li{margin:5px 0;}</style></head><body>")
+        f.write("<html><head><meta charset='utf-8'><title>Duplicate Finder Report</title>")
+        f.write("<style>body{font-family:sans-serif;margin:0;padding:1em;} ul{list-style:none;padding:0;} li{margin:5px 0;} a{text-decoration:none;color:#2196f3;} a:hover{text-decoration:underline;} header{position:sticky;top:0;background:#fff;padding:0.5em 0;border-bottom:1px solid #ccc;} button{padding:0.5em 1em;font-size:1em;} button:disabled{opacity:0.5;cursor:not-allowed;}</style>")
+        f.write("</head><body>")
+        f.write("<header><button id='export' disabled>Export deletion list (<span id='count'>0</span>)</button></header>")
         f.write("<h1>Duplicate Finder Report</h1>")
         f.write("<ul>")
         for page, title in pages:
             f.write(f"<li><a href='{page}'>{title}</a></li>")
-        f.write("</ul></body></html>")
+        f.write("</ul>")
+        # Script for export from index
+        f.write("<script>\n")
+        f.write("(function(){\n")
+        f.write("function updateExport(){\n")
+        f.write("  const marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+        f.write("  const btn = document.getElementById('export');\n")
+        f.write("  const cnt = document.getElementById('count');\n")
+        f.write("  cnt.textContent = marked.length;\n")
+        f.write("  btn.disabled = (marked.length === 0);\n")
+        f.write("}\n")
+        f.write("document.addEventListener('DOMContentLoaded', function(){\n")
+        f.write("  document.getElementById('export').addEventListener('click', function(){\n")
+        f.write("    const marked = JSON.parse(localStorage.getItem('markedPaths') || '[]');\n")
+        f.write("    const data = JSON.stringify(marked, null, 2);\n")
+        f.write("    const blob = new Blob([data], {type:'application/json'});\n")
+        f.write("    const url = URL.createObjectURL(blob);\n")
+        f.write("    const a = document.createElement('a');\n")
+        f.write("    a.href = url;\n")
+        f.write("    a.download = 'to_delete.json';\n")
+        f.write("    document.body.appendChild(a);\n")
+        f.write("    a.click();\n")
+        f.write("    document.body.removeChild(a);\n")
+        f.write("    URL.revokeObjectURL(url);\n")
+        f.write("  });\n")
+        f.write("  updateExport();\n")
+        f.write("});\n")
+        f.write("})();\n")
+        f.write("</script>")
+        f.write("</body></html>")
     return index_file
 
 ###############################################################################
