@@ -3,7 +3,8 @@ Recursive image analyzer.
 - Scans subfolders automatically.
 - Analyzes both resolution and file size.
 - Skips broken/unreadable files (I/O errors, corrupt files, etc.).
-- Groups results into resolution buckets (landscape & portrait) and size buckets.
+- Groups results into resolution buckets (landscape & portrait)
+  and size buckets.
 - Shows progress percentage.
 - Prints clean summary for both metrics.
 - Writes names of skipped files to 'skipped_files.txt' (same folder) if any.
@@ -18,7 +19,10 @@ from PIL import Image
 # Config
 SNAP_TOLERANCE = 400
 TOP_OTHER_EXAMPLES = 10
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".ico"}
+IMAGE_EXTS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+    ".webp", ".tiff", ".tif", ".ico"
+}
 
 COMMON_RESOLUTIONS = {
     "480p":   (640, 480),
@@ -47,11 +51,13 @@ SIZE_BUCKETS = [
     ("Over 100 MB", 100 * 1024 * 1024, float("inf")),
 ]
 
+
 def is_image_file(path: Path) -> bool:
     try:
         return path.suffix.lower() in IMAGE_EXTS
     except (OSError, PermissionError):
         return False
+
 
 def nearest_bucket(width: int, height: int) -> str:
     best_name, best_dist = None, float("inf")
@@ -61,11 +67,13 @@ def nearest_bucket(width: int, height: int) -> str:
             best_name, best_dist = name, dist
     return best_name if best_dist <= SNAP_TOLERANCE else "Other"
 
+
 def size_bucket(bytes_size: int) -> str:
     for name, min_bytes, max_bytes in SIZE_BUCKETS:
         if min_bytes <= bytes_size < max_bytes:
             return name
     return "Unknown"
+
 
 def get_image_info(file_path: Path):
     try:
@@ -77,6 +85,7 @@ def get_image_info(file_path: Path):
         return "Other", None
     except Exception:
         return "Other", None
+
 
 def gather_files(target: Path):
     files = []
@@ -95,22 +104,25 @@ def gather_files(target: Path):
         pass
     return files
 
+
 def print_progress(idx, total):
     percent = (idx / total) * 100 if total else 100.0
     sys.stdout.write(f"\rProgress: {idx}/{total} ({percent:.1f}%)")
     sys.stdout.flush()
 
+
 def format_size(bytes_size):
     if bytes_size is None:
         return "N/A"
-    
+
     units = [("TB", 1024**4), ("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)]
-    
+
     for unit, divisor in units:
         if bytes_size >= divisor:
             return f"{bytes_size / divisor:.2f} {unit}"
-    
+
     return f"{bytes_size} bytes"
+
 
 def main():
     script_dir = Path(__file__).parent
@@ -141,16 +153,16 @@ def main():
         try:
             res_bucket, raw_res = get_image_info(f)
             res_counts[res_bucket] += 1
-            
+
             if res_bucket == "Other" and raw_res:
                 other_raw[f"{raw_res[0]}x{raw_res[1]}"] += 1
-            
+
             file_size = f.stat().st_size
             size_counts[size_bucket(file_size)] += 1
             total_size += file_size
             
             format_counts[f.suffix.lower().lstrip('.')] += 1
-                
+
         except (OSError, PermissionError):
             skipped.append(f"{f}")
         except Exception:
@@ -236,6 +248,7 @@ def main():
     print(f"{'Scanned':<15}   {script_dir.resolve()}")
     print()
     input("Press Enter to exit...")
+
 
 if __name__ == "__main__":
     main()

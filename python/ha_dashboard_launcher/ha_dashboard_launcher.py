@@ -3,7 +3,8 @@
 
 """
 Script: ha_dashboard_launcher.py
-Purpose: Launches a frameless, borderless Home Assistant dashboard in a webview window
+Purpose: Launches a frameless, borderless Home Assistant dashboard
+         in a webview window
          - Displays on the 3rd monitor (or primary if unavailable)
          - Auto-refreshes every 5 minutes to keep data current
          - Creates a draggable top bar for window movement
@@ -24,6 +25,7 @@ from screeninfo import get_monitors  # pip install screeninfo
 URL = 'http://homeassistant.local:8123/dashboard-home/home'
 INTERVAL = 300  # 5 minutes
 
+
 def refresh_loop():
     while True:
         time.sleep(INTERVAL)
@@ -31,6 +33,7 @@ def refresh_loop():
             win.reload()
         except Exception as e:
             print(f"Refresh failed: {e}")
+
 
 def on_loaded():
     js = """
@@ -54,6 +57,7 @@ def on_loaded():
     document.body.appendChild(drag);
     """
     win.evaluate_js(js)
+
 
 if __name__ == '__main__':
     # Try to select the 3rd screen (index 2)

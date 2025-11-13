@@ -79,15 +79,21 @@ COMMON_RESOLUTIONS = {
 # -------------------------------
 # Utilities
 # -------------------------------
+
+
 def is_video_file(path: Path) -> bool:
     try:
         return path.suffix.lower() in VIDEO_EXTS
     except (OSError, PermissionError):
         return False
 
+
+
 def resolve_ffprobe(script_dir: Path) -> str:
     local = script_dir / "ffprobe.exe"
     return str(local) if local.exists() else "ffprobe"
+
+
 
 def nearest_bucket(width: int, height: int) -> str:
     best_name, best_dist = None, float("inf")
@@ -97,17 +103,23 @@ def nearest_bucket(width: int, height: int) -> str:
             best_name, best_dist = name, dist
     return best_name if best_dist <= SNAP_TOLERANCE else "Other"
 
+
+
 def duration_bucket(seconds: float) -> str:
     for name, lo, hi in DURATION_BUCKETS:
         if lo <= seconds < hi:
             return name
     return "Unknown"
 
+
+
 def size_bucket(b: int) -> str:
     for name, lo, hi in SIZE_BUCKETS:
         if lo <= b < hi:
             return name
     return "Unknown"
+
+
 
 def parse_fps(avg_frame_rate: Optional[str]) -> Optional[float]:
     if not avg_frame_rate or avg_frame_rate in ("0/0", "0", "N/A"):
@@ -124,6 +136,8 @@ def parse_fps(avg_frame_rate: Optional[str]) -> Optional[float]:
     except ValueError:
         return None
 
+
+
 def human_size(b: Optional[int]) -> str:
     if b is None:
         return "N/A"
@@ -133,6 +147,8 @@ def human_size(b: Optional[int]) -> str:
             return f"{b / d:.2f} {u}"
     return f"{b} bytes"
 
+
+
 def human_duration(sec: Optional[float]) -> str:
     if sec is None:
         return "N/A"
@@ -141,6 +157,8 @@ def human_duration(sec: Optional[float]) -> str:
     m = (s % 3600) // 60
     s2 = s % 60
     return f"{h}h {m}m {s2}s" if h else (f"{m}m {s2}s" if m else f"{s2}s")
+
+
 
 def hdr_label(transfer: str | None, side_data_types: str | None) -> str:
     t = (transfer or "").lower()
@@ -153,8 +171,12 @@ def hdr_label(transfer: str | None, side_data_types: str | None) -> str:
         return "HLG"
     return "SDR"
 
+
+
 def kbps(bits: Optional[int]) -> Optional[float]:
     return (bits / 1000.0) if bits is not None else None
+
+
 
 def median_safe(values: list[float]) -> Optional[float]:
     vals = [v for v in values if v is not None]
@@ -163,6 +185,8 @@ def median_safe(values: list[float]) -> Optional[float]:
 # -------------------------------
 # ffprobe
 # -------------------------------
+
+
 def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
     try:
         cmd = [
@@ -244,6 +268,8 @@ def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
 # -------------------------------
 # Collection
 # -------------------------------
+
+
 def gather_files(target: Path) -> list[Path]:
     files: list[Path] = []
     try:
@@ -260,9 +286,13 @@ def gather_files(target: Path) -> list[Path]:
 # -------------------------------
 # Formatting helpers (GLOBAL alignment)
 # -------------------------------
+
+
 def pad_left(s: str, width: int) -> str:
     s = "" if s is None else str(s)
     return s.ljust(width)
+
+
 
 def build_rows(records: list[dict]) -> dict:
     rows = {}
@@ -346,6 +376,8 @@ def build_rows(records: list[dict]) -> dict:
 
     return rows
 
+
+
 def compute_value_col_start(rows: dict, min_col: int = 18, gap: int = 2) -> int:
     max_label = 0
     for section in rows.values():
@@ -353,9 +385,13 @@ def compute_value_col_start(rows: dict, min_col: int = 18, gap: int = 2) -> int:
             max_label = max(max_label, len(label))
     return max(min_col, max_label + gap)
 
+
+
 def print_section_header(title: str):
     print(title)
     print(DASH)
+
+
 
 def print_kv_rows(rows: list[tuple[str,str]], value_col: int):
     for label, value in rows:
@@ -369,6 +405,8 @@ def print_kv_rows(rows: list[tuple[str,str]], value_col: int):
 # -------------------------------
 # CLI / UX
 # -------------------------------
+
+
 def parse_args(argv: list[str], default_path: Path) -> Tuple[Path,bool]:
     path = None
     details = False
@@ -390,6 +428,8 @@ def parse_args(argv: list[str], default_path: Path) -> Tuple[Path,bool]:
 # -------------------------------
 # Main
 # -------------------------------
+
+
 def summarize_and_print(records: list[dict], target: Path):
     all_rows = build_rows(records)
     value_col = compute_value_col_start(all_rows)
@@ -422,6 +462,8 @@ def summarize_and_print(records: list[dict], target: Path):
         first = False
         print_section_header(key)
         print_kv_rows(all_rows[key], value_col)
+
+
 
 def main():
     script_dir = Path(__file__).parent
