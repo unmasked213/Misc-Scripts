@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 """
 dupefinder.py
@@ -398,7 +398,12 @@ def build_thumbnail(img: np.ndarray, max_px: int) -> Image.Image:
         PIL Image resized to fit within max_px x max_px
     """
     pil_img = Image.fromarray(img)
-    pil_img.thumbnail((max_px, max_px), Image.LANCZOS)
+    # Use LANCZOS resampling (compatible with Pillow 9.x and 10.x)
+    try:
+        from PIL.Image import Resampling
+        pil_img.thumbnail((max_px, max_px), Resampling.LANCZOS)
+    except (ImportError, AttributeError):
+        pil_img.thumbnail((max_px, max_px), Image.LANCZOS)
     return pil_img
 
 def dct_2d(arr: np.ndarray) -> np.ndarray:
@@ -426,7 +431,11 @@ def compute_phash64(img: np.ndarray) -> int:
     return bits
 
 def phash_hamming_distance(a: int, b: int) -> int:
-    return (a ^ b).bit_count()
+    # Use bin().count('1') for Python < 3.10 compatibility
+    xor = a ^ b
+    if hasattr(xor, 'bit_count'):
+        return xor.bit_count()
+    return bin(xor).count('1')
 
 def compute_all_phashes(img: np.ndarray, cfg) -> List[int]:
     if not cfg["hash"]["canonical_transforms"]:
@@ -474,12 +483,17 @@ def match_descriptors(desc_a: np.ndarray, desc_b: np.ndarray, cfg) -> List[cv2.D
     matcher = cv2.BFMatcher(norm_type, crossCheck=cross_check)
     if cross_check:
         return sorted(matcher.match(desc_a, desc_b), key=lambda m: m.distance)
-    matches = matcher.knnMatch(desc_a, desc_b, k=2)
+    try:
+        matches = matcher.knnMatch(desc_a, desc_b, k=2)
+    except cv2.error:
+        return []
     good = []
     ratio = cfg["match"]["ratio_test"]
-    for m, n in matches:
-        if m.distance < ratio * n.distance:
-            good.append(m)
+    for pair in matches:
+        if len(pair) == 2:
+            m, n = pair
+            if m.distance < ratio * n.distance:
+                good.append(m)
     return good
 
 def estimate_transform_and_metrics(

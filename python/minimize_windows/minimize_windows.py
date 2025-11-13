@@ -14,14 +14,17 @@ Requirements: pygetwindow, pywin32
 import pygetwindow as gw
 import win32gui
 import win32con
-from urllib.parse import urlparse
 
 # Function to check if a window belongs to File Explorer
+
+
 def is_file_explorer_window(hwnd):
     class_name = win32gui.GetClassName(hwnd)
     return class_name == "CabinetWClass" or class_name == "ExplorerWClass"
 
 # Function to check if a window title contains any whitelisted term
+
+
 def is_whitelisted_content(title, whitelist):
     title_lower = title.lower()
     for term in whitelist:
@@ -30,6 +33,8 @@ def is_whitelisted_content(title, whitelist):
     return False
 
 # Function to minimize windows based on keywords or class type
+
+
 def minimize_windows(keywords, exceptions, browser_whitelist):
     # Cache all window titles and windows
     all_windows = gw.getAllWindows()
@@ -45,7 +50,7 @@ def minimize_windows(keywords, exceptions, browser_whitelist):
                     print(f"Window titled '{title}' minimized.")
                 except Exception as e:
                     print(f"Error minimizing window titled '{title}': {e}")
-    
+
     # Handle browser windows (Brave and Firefox)
     browser_keywords = ["Brave", "Firefox"]
     for browser in browser_keywords:
@@ -68,9 +73,9 @@ def minimize_windows(keywords, exceptions, browser_whitelist):
 
 # Keywords to minimize
 keywords_to_minimize = [
-    "Reolink", "IrfanView", "MPV", "VLC", 
-    ".jpg", ".jpeg", ".png", ".gif", 
-    ".bmp", ".tiff", ".tif", ".pdf", 
+    "Reolink", "IrfanView", "MPV", "VLC",
+    ".jpg", ".jpeg", ".png", ".gif",
+    ".bmp", ".tiff", ".tif", ".pdf",
     ".webp", ".heic", ".heif"
 ]
 

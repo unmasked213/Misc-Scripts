@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 delete_marked.py
 
@@ -25,7 +25,10 @@ def main() -> None:
     try:
         marker_path = Path("to_delete.json")
         if not marker_path.exists():
-            print("to_delete.json not found in current directory. Nothing to do.")
+            print(
+                "to_delete.json not found in current directory. "
+                "Nothing to do."
+            )
             return
         # Read list of file paths to move
         try:
