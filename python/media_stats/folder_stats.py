@@ -22,8 +22,10 @@ from __future__ import annotations
 import os
 import sys
 import heapq
+import stat as stat_module
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, List, Tuple
+from collections import defaultdict
 
 # Windows-safe UTF-8 console
 os.environ["PYTHONUTF8"] = "1"
@@ -100,59 +102,76 @@ def scan_folders(
       count_totals: dirpath -> total file count (recursive)
       top_files: list of (size, path) tuples for top 10 largest files
     """
-    size_direct: Dict[str, int] = {}
-    count_direct: Dict[str, int] = {}
-    size_totals: Dict[str, int] = {}
-    count_totals: Dict[str, int] = {}
-    all_files: List[Tuple[int, str]] = []
+    # Use defaultdict for automatic zero-initialization
+    size_totals: Dict[str, int] = defaultdict(int)
+    count_totals: Dict[str, int] = defaultdict(int)
+
+    # Bounded min-heap for top 10 files - maintains at most 10 entries
+    # Memory: O(10) instead of O(total_files)
+    top_files_heap: List[Tuple[int, str]] = []
+    heap_size_limit = 10
 
     # Bottom-up walk so we can aggregate children into parents.
     for dirpath, dirnames, filenames in os.walk(
             target, topdown=False, onerror=on_walk_error,
             followlinks=False):
-        dp = Path(dirpath)
 
         # Direct files in this directory
         s_direct = 0
         c_direct = 0
 
         for fn in filenames:
-            fp = dp / fn
+            # Use os.path.join instead of pathlib (faster for this use case)
+            fp_str = os.path.join(dirpath, fn)
+
             try:
+                # Single lstat call (doesn't follow symlinks)
+                # More efficient than separate is_symlink() + stat() calls
+                st = os.lstat(fp_str)
+
                 # Skip symlinks to avoid cycles/duplicates
-                if fp.is_symlink():
+                if stat_module.S_ISLNK(st.st_mode):
                     continue
-                st = fp.stat(follow_symlinks=False)
+
                 # Count only regular files
-                if not hasattr(st, "st_mode"):
+                if not stat_module.S_ISREG(st.st_mode):
                     continue
-                file_size = int(st.st_size)
+
+                file_size = st.st_size
                 s_direct += file_size
                 c_direct += 1
 
-                # Track all files for top 10
-                all_files.append((file_size, str(fp)))
+                # Maintain bounded heap for top 10 files
+                if len(top_files_heap) < heap_size_limit:
+                    heapq.heappush(top_files_heap, (file_size, fp_str))
+                elif file_size > top_files_heap[0][0]:
+                    heapq.heapreplace(top_files_heap, (file_size, fp_str))
+
             except OSError:
                 # unreadable/broken files are skipped
                 continue
 
-        size_direct[dirpath] = s_direct
-        count_direct[dirpath] = c_direct
+        # Start with direct totals
+        size_totals[dirpath] = s_direct
+        count_totals[dirpath] = c_direct
 
-        # Start with direct, then add all immediate children totals
-        # (already computed in bottom-up)
+        # Add all immediate children totals (already computed in bottom-up)
         s_total = s_direct
         c_total = c_direct
+
+        # String concatenation for child paths (faster than Path operations)
         for dn in dirnames:
-            child = str((dp / dn))
-            s_total += size_totals.get(child, 0)
-            c_total += count_totals.get(child, 0)
+            child = os.path.join(dirpath, dn)
+            # defaultdict returns 0 for missing keys automatically
+            s_total += size_totals[child]
+            c_total += count_totals[child]
 
         size_totals[dirpath] = s_total
         count_totals[dirpath] = c_total
 
-    # Get top 10 largest files
-    top_files = heapq.nlargest(10, all_files, key=lambda x: x[0])
+    # Convert heap to sorted list (largest first)
+    # heapq.nlargest efficiently sorts the small heap
+    top_files = heapq.nlargest(heap_size_limit, top_files_heap, key=lambda x: x[0])
 
     return size_totals, count_totals, top_files
 
@@ -202,6 +221,9 @@ def rank_and_print(
     print(legend)
     print()
 
+    # Pre-compute average file size once
+    avg_file_size = total_size / total_files if total_files > 0 else 0
+
     # Top by size
     print("  TOP BY SIZE")
     print("  " + DASH)
@@ -214,9 +236,6 @@ def rank_and_print(
     print(header)
     print("  " + DASH)
 
-    # Calculate overall average file size
-    avg_file_size = total_size / total_files if total_files > 0 else 0
-    
     for idx, (path_str, bytes_total, files_total) in enumerate(
             by_size, start=1):
         rank = (str(idx) + ".").ljust(max_rank + 2)
@@ -224,13 +243,13 @@ def rank_and_print(
         size_pct = (bytes_total / total_size * 100) if total_size > 0 else 0
         pct = f"{size_pct:.1f}%".ljust(6)
         files_str = f"{files_total:,}"
-        
+
         # Calculate average file size for this folder
         folder_avg = bytes_total / files_total if files_total > 0 else 0
-        
+
         # Strip root path to show relative path
         rel_path = str(Path(path_str).relative_to(root))
-        
+
         # Highlight based on how much larger than average
         if folder_avg >= 2 * avg_file_size and avg_file_size > 0:
             files_h = f"{BOLD}{RED_FG}{files_str}{RESET}".ljust(
@@ -240,7 +259,7 @@ def rank_and_print(
                 cnt_w + len(BOLD) + len(ORANGE_FG) + len(RESET))
         else:
             files_h = files_str.ljust(cnt_w)
-        
+
         print(f"  {rank}  {size_h}  {pct}  {files_h}   {rel_path}")
     if not by_size:
         print("  (no folders)")
@@ -260,13 +279,13 @@ def rank_and_print(
         size_pct = (bytes_total / total_size * 100) if total_size > 0 else 0
         pct = f"{size_pct:.1f}%".ljust(6)
         files_str = f"{files_total:,}"
-        
+
         # Calculate average file size for this folder
         folder_avg = bytes_total / files_total if files_total > 0 else 0
-        
+
         # Strip root path to show relative path
         rel_path = str(Path(path_str).relative_to(root))
-        
+
         # Highlight based on how much larger than average
         if folder_avg >= 2 * avg_file_size and avg_file_size > 0:
             files_h = f"{BOLD}{RED_FG}{files_str}{RESET}".ljust(
@@ -276,7 +295,7 @@ def rank_and_print(
                 cnt_w + len(BOLD) + len(ORANGE_FG) + len(RESET))
         else:
             files_h = files_str.ljust(cnt_w)
-        
+
         print(f"  {rank}  {size_h}  {pct}  {files_h}   {rel_path}")
     if not by_count:
         print("  (no folders)")
