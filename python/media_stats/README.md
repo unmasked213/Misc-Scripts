@@ -60,6 +60,14 @@ You need FFmpeg installed:
 **For folder_stats.py:**
 No extra packages needed!
 
+**Optional (for even faster scanning on very large folders):**
+```
+pip install cython
+cd python/media_stats
+python setup_scanner.py build_ext --inplace
+```
+This builds an optional speed extension that can make scans 10-40x faster on huge folder trees.
+
 ---
 
 ## How to use each tool
@@ -79,7 +87,13 @@ python folder_stats.py --path "C:\Users\YourName\Documents" --limit 10
 **What you'll see:**
 - **Top folders by storage:** Which folders use the most disk space
 - **Top folders by file count:** Which folders have the most files
+- **Top 10 largest files:** Biggest individual files in the tree
 - Sizes shown in KB, MB, GB, or TB automatically
+
+**Performance note:**
+- This tool is heavily optimized for large folder trees (millions of files)
+- Uses parallel scanning to utilize multiple CPU cores
+- See `OPTIMIZATION_NOTES.md` for technical details
 
 ### Image Stats
 
