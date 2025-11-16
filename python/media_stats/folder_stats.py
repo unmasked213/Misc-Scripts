@@ -21,11 +21,19 @@ Usage
 from __future__ import annotations
 import os
 import sys
-import heapq
-import stat as stat_module
 from pathlib import Path
 from typing import Dict, List, Tuple
-from collections import defaultdict
+
+# Import optimized scanner
+try:
+    from folder_scanner_fast import scan_folders_fast, scan_folders_serial
+    FAST_SCANNER_AVAILABLE = True
+except ImportError:
+    # Fallback if module not available
+    FAST_SCANNER_AVAILABLE = False
+    import heapq
+    import stat as stat_module
+    from collections import defaultdict
 
 # Windows-safe UTF-8 console
 os.environ["PYTHONUTF8"] = "1"
@@ -97,6 +105,27 @@ def scan_folders(
         target: Path
 ) -> tuple[Dict[str, int], Dict[str, int], List[Tuple[int, str]]]:
     """
+    Returns:
+      size_totals: dirpath -> total bytes (recursive)
+      count_totals: dirpath -> total file count (recursive)
+      top_files: list of (size, path) tuples for top 10 largest files
+    """
+    target_str = str(target)
+
+    # Use optimized scanner if available
+    if FAST_SCANNER_AVAILABLE:
+        return scan_folders_fast(target_str)
+
+    # Fallback to original implementation
+    return _scan_folders_fallback(target)
+
+
+def _scan_folders_fallback(
+        target: Path
+) -> tuple[Dict[str, int], Dict[str, int], List[Tuple[int, str]]]:
+    """
+    Original implementation - fallback if optimized scanner unavailable.
+
     Returns:
       size_totals: dirpath -> total bytes (recursive)
       count_totals: dirpath -> total file count (recursive)
