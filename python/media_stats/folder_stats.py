@@ -25,10 +25,9 @@ import sys
 import heapq
 from pathlib import Path
 from typing import Dict, List, Tuple
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 import time
+import multiprocessing as mp
+from multiprocessing import Process, Manager
 
 # Windows-safe UTF-8 console
 os.environ["PYTHONUTF8"] = "1"
@@ -92,45 +91,20 @@ def parse_args(argv: List[str], default_path: Path) -> tuple[Path, int]:
     return path, limit
 
 
-def scan_folders(
-    target: Path,
-) -> tuple[Dict[str, int], Dict[str, int], List[Tuple[int, str]]]:
-    """
-    Parallel directory scanner using os.scandir + ThreadPoolExecutor.
+def worker_process(work_queue, result_queue):
+    """Worker process that scans directories from the work queue."""
+    local_heap = []
 
-    Returns:
-      size_totals: dirpath -> total bytes (recursive)
-      count_totals: dirpath -> total file count (recursive)
-      top_files: list of (size, path) tuples for top 10 largest files
-    """
-    size_totals: Dict[str, int] = defaultdict(int)
-    count_totals: Dict[str, int] = defaultdict(int)
+    while True:
+        msg = work_queue.get()
+        if msg is None:
+            result_queue.put(('heap', local_heap))
+            break
 
-    heap_size_limit = 10
-    thread_local = threading.local()
-    global_heaps: List[List[Tuple[int, str]]] = []
-    heaps_lock = threading.Lock()
-    size_lock = threading.Lock()
-    count_lock = threading.Lock()
-
-    def update_top(file_size: int, file_path: str) -> None:
-        try:
-            h = thread_local.heap
-        except AttributeError:
-            h = []
-            thread_local.heap = h
-            with heaps_lock:
-                global_heaps.append(h)
-
-        if len(h) < heap_size_limit:
-            heapq.heappush(h, (file_size, file_path))
-        elif file_size > h[0][0]:
-            heapq.heapreplace(h, (file_size, file_path))
-
-    def scan_dir(dirpath: str, ex: ThreadPoolExecutor) -> Tuple[int, int]:
+        dirpath = msg
         size_direct = 0
         count_direct = 0
-        subdirs: List[str] = []
+        subdirs = []
 
         try:
             with os.scandir(dirpath) as it:
@@ -144,7 +118,11 @@ def scan_folders(
                             file_size = stat_info.st_size
                             size_direct += file_size
                             count_direct += 1
-                            update_top(file_size, entry.path)
+
+                            if len(local_heap) < 10:
+                                heapq.heappush(local_heap, (file_size, entry.path))
+                            elif file_size > local_heap[0][0]:
+                                heapq.heapreplace(local_heap, (file_size, entry.path))
 
                         elif entry.is_dir(follow_symlinks=False):
                             subdirs.append(entry.path)
@@ -154,43 +132,95 @@ def scan_folders(
         except OSError:
             pass
 
-        size_total = size_direct
-        count_total = count_direct
+        result_queue.put(('result', dirpath, size_direct, count_direct, subdirs))
 
-        if subdirs:
-            if len(subdirs) <= 2:
-                for subdir in subdirs:
-                    sub_size, sub_count = scan_dir(subdir, ex)
-                    size_total += sub_size
-                    count_total += sub_count
-            else:
-                futures = {ex.submit(scan_dir, subdir, ex): subdir for subdir in subdirs}
-                for fut in as_completed(futures):
-                    try:
-                        sub_size, sub_count = fut.result()
-                        size_total += sub_size
-                        count_total += sub_count
-                    except Exception:
-                        continue
 
-        with size_lock:
-            size_totals[dirpath] = size_total
-        with count_lock:
-            count_totals[dirpath] = count_total
+def scan_folders(
+    target: Path,
+) -> tuple[Dict[str, int], Dict[str, int], List[Tuple[int, str]]]:
+    """
+    Parallel directory scanner using multiprocessing work queue.
 
-        return size_total, count_total
+    Returns:
+      size_totals: dirpath -> total bytes (recursive)
+      count_totals: dirpath -> total file count (recursive)
+      top_files: list of (size, path) tuples for top 10 largest files
+    """
+    manager = Manager()
+    work_queue = manager.Queue()
+    result_queue = manager.Queue()
 
-    root_path = target.resolve()
-    root_str = str(root_path)
+    num_workers = max(1, os.cpu_count() or 4)
+    workers = []
+    for _ in range(num_workers):
+        p = Process(target=worker_process, args=(work_queue, result_queue))
+        p.start()
+        workers.append(p)
 
-    max_workers = (os.cpu_count() or 4) * 2
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        scan_dir(root_str, ex)
+    root_str = str(target.resolve())
+    work_queue.put(root_str)
+    pending = 1
 
-    merged: List[Tuple[int, str]] = []
-    for h in global_heaps:
-        merged.extend(h)
-    top_files = heapq.nlargest(heap_size_limit, merged) if merged else []
+    dir_direct_size = {}
+    dir_direct_count = {}
+    dir_children = {}
+
+    while pending > 0:
+        msg = result_queue.get()
+        msg_type = msg[0]
+
+        if msg_type == 'result':
+            dirpath = msg[1]
+            size_direct = msg[2]
+            count_direct = msg[3]
+            subdirs = msg[4]
+
+            dir_direct_size[dirpath] = size_direct
+            dir_direct_count[dirpath] = count_direct
+            dir_children[dirpath] = subdirs
+
+            for subdir in subdirs:
+                work_queue.put(subdir)
+                pending += 1
+
+            pending -= 1
+
+    for _ in workers:
+        work_queue.put(None)
+
+    all_heaps = []
+    for _ in workers:
+        msg = result_queue.get()
+        if msg[0] == 'heap':
+            all_heaps.append(msg[1])
+
+    for w in workers:
+        w.join()
+
+    merged_heap = []
+    for h in all_heaps:
+        merged_heap.extend(h)
+    top_files = heapq.nlargest(10, merged_heap) if merged_heap else []
+
+    dirs_by_depth = sorted(
+        dir_children.keys(),
+        key=lambda d: d.count(os.sep),
+        reverse=True
+    )
+
+    size_totals = {}
+    count_totals = {}
+
+    for dirpath in dirs_by_depth:
+        total_size = dir_direct_size.get(dirpath, 0)
+        total_count = dir_direct_count.get(dirpath, 0)
+
+        for child in dir_children.get(dirpath, []):
+            total_size += size_totals.get(child, 0)
+            total_count += count_totals.get(child, 0)
+
+        size_totals[dirpath] = total_size
+        count_totals[dirpath] = total_count
 
     return size_totals, count_totals, top_files
 
@@ -370,4 +400,5 @@ def main():
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
     main()
