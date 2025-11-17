@@ -12,9 +12,11 @@ Recursive image analyzer.
 
 import math
 import sys
+import os
 from pathlib import Path
 from collections import Counter
 from PIL import Image
+from multiprocessing import Pool
 
 # Config
 SNAP_TOLERANCE = 400
@@ -87,6 +89,44 @@ def get_image_info(file_path: Path):
         return "Other", None
 
 
+def process_image_worker(file_path: Path):
+    """Worker function for multiprocessing pool.
+
+    Processes a single image file and returns metadata dict.
+    Returns dict with "success": False if the file cannot be processed.
+    """
+    try:
+        # Get resolution info
+        with Image.open(file_path) as img:
+            width, height = img.size
+            if width and height:
+                res_bucket = nearest_bucket(width, height)
+                raw_res = (width, height)
+            else:
+                res_bucket = "Other"
+                raw_res = None
+
+        # Get file size and other metadata
+        file_size = file_path.stat().st_size
+        size_bkt = size_bucket(file_size)
+        fmt = file_path.suffix.lower().lstrip('.')
+
+        return {
+            "success": True,
+            "path": str(file_path),
+            "res_bucket": res_bucket,
+            "raw_res": raw_res,
+            "file_size": file_size,
+            "size_bucket": size_bkt,
+            "format": fmt
+        }
+    except Exception:
+        return {
+            "success": False,
+            "path": str(file_path)
+        }
+
+
 def gather_files(target: Path):
     files = []
     try:
@@ -140,7 +180,8 @@ def main():
         input("Press Enter to exit...")
         return
 
-    print(f"Scanning {total} image files in {script_dir.resolve()}...\n")
+    print(f"Scanning {total} image files in {script_dir.resolve()}...")
+    print(f"Using {os.cpu_count()} workers for parallel processing...\n")
 
     res_counts = Counter()
     size_counts = Counter()
@@ -149,25 +190,24 @@ def main():
     total_size = 0
     skipped = []
 
-    for idx, f in enumerate(files, start=1):
-        try:
-            res_bucket, raw_res = get_image_info(f)
-            res_counts[res_bucket] += 1
+    # Use multiprocessing pool for parallel processing
+    with Pool(processes=os.cpu_count()) as pool:
+        for idx, result in enumerate(pool.imap_unordered(process_image_worker, files), start=1):
+            if result["success"]:
+                # Update counters from result
+                res_counts[result["res_bucket"]] += 1
 
-            if res_bucket == "Other" and raw_res:
-                other_raw[f"{raw_res[0]}x{raw_res[1]}"] += 1
+                if result["res_bucket"] == "Other" and result["raw_res"]:
+                    other_raw[f"{result['raw_res'][0]}x{result['raw_res'][1]}"] += 1
 
-            file_size = f.stat().st_size
-            size_counts[size_bucket(file_size)] += 1
-            total_size += file_size
-            
-            format_counts[f.suffix.lower().lstrip('.')] += 1
+                size_counts[result["size_bucket"]] += 1
+                total_size += result["file_size"]
+                format_counts[result["format"]] += 1
+            else:
+                # File could not be processed
+                skipped.append(result["path"])
 
-        except (OSError, PermissionError):
-            skipped.append(f"{f}")
-        except Exception:
-            skipped.append(f"{f}")
-        print_progress(idx, total)
+            print_progress(idx, total)
 
     print("\n\n")
     print("RESOLUTION")

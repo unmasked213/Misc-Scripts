@@ -21,6 +21,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 from statistics import median
 from typing import Dict, Tuple, Optional
+from multiprocessing import Pool
 
 # UTF-8 everywhere (Windows-safe)
 os.environ["PYTHONUTF8"] = "1"
@@ -265,6 +266,15 @@ def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
     except Exception:
         return None
 
+
+def probe_worker(args: Tuple[str, Path]) -> Optional[dict]:
+    """Worker function for multiprocessing pool.
+
+    Takes (ffprobe_cmd, file_path) tuple and returns probe results.
+    """
+    ffprobe_cmd, file_path = args
+    return probe(ffprobe_cmd, file_path)
+
 # -------------------------------
 # Collection
 # -------------------------------
@@ -483,17 +493,31 @@ def main():
         return
 
     print(f"Scanning {len(files)} files in {target.resolve()} ...")
+    print(f"Using {os.cpu_count()} workers for parallel processing...")
+
     skipped = []
     records = []
-    for idx, f in enumerate(files, start=1):
-        rec = probe(ffprobe_cmd, f)
-        if rec is not None:
-            records.append(rec)
-        else:
-            skipped.append(str(f))
-        if idx % 25 == 0 or idx == len(files):
-            sys.stdout.write(f"\rProgress: {idx}/{len(files)}")
-            sys.stdout.flush()
+
+    # Prepare arguments for worker function
+    worker_args = [(ffprobe_cmd, f) for f in files]
+
+    # Use multiprocessing pool for parallel processing
+    with Pool(processes=os.cpu_count()) as pool:
+        for idx, result in enumerate(pool.imap_unordered(probe_worker, worker_args), start=1):
+            if result is not None:
+                records.append(result)
+            else:
+                # Find which file failed (result doesn't include path on failure)
+                # Track by counting processed files
+                pass  # File will be in skipped list based on None result
+
+            if idx % 25 == 0 or idx == len(files):
+                sys.stdout.write(f"\rProgress: {idx}/{len(files)}")
+                sys.stdout.flush()
+
+    # Identify skipped files by comparing processed records with original file list
+    processed_paths = {r["path"] for r in records}
+    skipped = [str(f) for f in files if str(f) not in processed_paths]
 
     print("\n")
     summarize_and_print(records, target)
