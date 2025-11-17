@@ -9,7 +9,7 @@ What it does
   1) Top folders by total storage used.
   2) Top folders by total number of files.
 - Excludes the target root itself from the rankings.
-- Limits results to at most 10 folders (or fewer if less exist).
+- Limits results to a specified number of folders (default 10).
 - Skips unreadable files/dirs and symlinks to avoid loops.
 - Waits for Enter before exit (so double-click works on Windows).
 
@@ -91,7 +91,7 @@ def parse_args(argv: List[str], default_path: Path) -> tuple[Path, int]:
     return path, limit
 
 
-def worker_process(work_queue, result_queue):
+def worker_process(work_queue, result_queue, heap_limit):
     """Worker process that scans directories from the work queue."""
     local_heap = []
 
@@ -119,7 +119,7 @@ def worker_process(work_queue, result_queue):
                             size_direct += file_size
                             count_direct += 1
 
-                            if len(local_heap) < 10:
+                            if len(local_heap) < heap_limit:
                                 heapq.heappush(local_heap, (file_size, entry.path))
                             elif file_size > local_heap[0][0]:
                                 heapq.heapreplace(local_heap, (file_size, entry.path))
@@ -137,6 +137,7 @@ def worker_process(work_queue, result_queue):
 
 def scan_folders(
     target: Path,
+    limit: int,
 ) -> tuple[Dict[str, int], Dict[str, int], List[Tuple[int, str]]]:
     """
     Parallel directory scanner using multiprocessing work queue.
@@ -144,7 +145,7 @@ def scan_folders(
     Returns:
       size_totals: dirpath -> total bytes (recursive)
       count_totals: dirpath -> total file count (recursive)
-      top_files: list of (size, path) tuples for top 10 largest files
+      top_files: list of (size, path) tuples for top largest files
     """
     manager = Manager()
     work_queue = manager.Queue()
@@ -153,7 +154,7 @@ def scan_folders(
     num_workers = max(1, os.cpu_count() or 4)
     workers = []
     for _ in range(num_workers):
-        p = Process(target=worker_process, args=(work_queue, result_queue))
+        p = Process(target=worker_process, args=(work_queue, result_queue, limit))
         p.start()
         workers.append(p)
 
@@ -200,7 +201,7 @@ def scan_folders(
     merged_heap = []
     for h in all_heaps:
         merged_heap.extend(h)
-    top_files = heapq.nlargest(10, merged_heap) if merged_heap else []
+    top_files = heapq.nlargest(limit, merged_heap) if merged_heap else []
 
     dirs_by_depth = sorted(
         dir_children.keys(),
@@ -256,7 +257,7 @@ def rank_and_print(
         6, max((len(f"{c:,}") for _, _, c in (by_size + by_count)), default=6)
     )
 
-    print("  FOLDER TOP-10 SUMMARY")
+    print(f"  FOLDER TOP-{limit} SUMMARY")
     print(f"  TARGET: {root}")
     print("  " + "=" * len(DASH))
     print()
@@ -341,7 +342,7 @@ def rank_and_print(
     print()
     print()
 
-    print("  TOP 10 LARGEST FILES")
+    print(f"  TOP {limit} LARGEST FILES")
     print("  " + DASH)
     if top_files:
         file_size_w = max(
@@ -364,6 +365,18 @@ def main():
     script_dir = Path(__file__).parent
     target, limit = parse_args(sys.argv, script_dir)
 
+    # If running without command line args (double-clicked), prompt for limit
+    if len(sys.argv) == 1:
+        print("  How many results would you like to see in each table?")
+        user_input = input("  Enter a number (default 10): ").strip()
+        if user_input:
+            try:
+                limit = max(1, int(user_input))
+            except ValueError:
+                print("  Invalid input, using default of 10")
+                limit = 10
+        print()
+
     try:
         target = target.resolve()
     except Exception as e:
@@ -385,7 +398,7 @@ def main():
 
     t0 = time.perf_counter()
     try:
-        size_totals, count_totals, top_files = scan_folders(target)
+        size_totals, count_totals, top_files = scan_folders(target, limit)
     except Exception as e:
         print(f"  Failed while scanning: {e}")
         input("\n  Press Enter to exit...")
