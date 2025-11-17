@@ -24,10 +24,10 @@ Analyzes all your images and groups them by quality (480p, 720p, 1080p, 4K, etc.
 - Finding out the typical size of your images
 - Understanding your collection before organizing it
 
-### 3. Video Stats (`video_stats_v2.py`)
+### 3. Video Stats (`video_stats.py`)
 
 **What it does:**
-Analyzes all your videos, showing you their quality, length, and file sizes. Like a report on your video library.
+Analyzes all your videos, showing you their quality, length, codec, HDR/SDR status, and file sizes. Like a comprehensive report on your video library.
 
 **Best for:**
 - Finding out how many HD or 4K videos you have
@@ -51,7 +51,7 @@ Analyzes all your videos, showing you their quality, length, and file sizes. Lik
 pip install pillow
 ```
 
-**For video_stats_v2.py:**
+**For video_stats.py:**
 You need FFmpeg installed:
 1. Go to https://ffmpeg.org/download.html
 2. Download and install for Windows
@@ -77,7 +77,8 @@ This builds an optional speed extension that can make scans 10-40x faster on hug
 **Easy way:**
 1. Copy `folder_stats.py` into the folder you want to analyze
 2. Double-click it
-3. Read the report showing your top 10 folders
+3. Enter how many results you want to see (or press Enter for default 10)
+4. Read the comprehensive report
 
 **Advanced way (command line):**
 ```
@@ -87,13 +88,14 @@ python folder_stats.py --path "C:\Users\YourName\Documents" --limit 10
 **What you'll see:**
 - **Top folders by storage:** Which folders use the most disk space
 - **Top folders by file count:** Which folders have the most files
-- **Top 10 largest files:** Biggest individual files in the tree
+- **Color-coded file counts:** Folders with unusually large average file sizes are highlighted in orange or red
+- **Top largest files:** Biggest individual files across the entire tree
 - Sizes shown in KB, MB, GB, or TB automatically
 
 **Performance note:**
-- This tool is heavily optimized for large folder trees (millions of files)
-- Uses parallel scanning to utilize multiple CPU cores
-- See `OPTIMIZATION_NOTES.md` for technical details
+- This tool uses multiprocessing to scan folders in parallel
+- Automatically utilizes all your CPU cores for faster scanning
+- Optimized for large folder trees with millions of files
 
 ### Image Stats
 
@@ -105,22 +107,29 @@ python folder_stats.py --path "C:\Users\YourName\Documents" --limit 10
 
 **What you'll see:**
 - **Resolution breakdown:** How many 720p, 1080p, 4K images you have
+- **File format breakdown:** Distribution of JPG, PNG, WebP, and other formats
 - **Size breakdown:** How many images in each file size range
 - **Portrait vs Landscape:** Separate counts for vertical and horizontal photos
+- Uses multiprocessing for faster scanning of large collections
 - A list of any files that couldn't be read
 
 ### Video Stats
 
 **Easy way:**
-1. Copy `video_stats_v2.py` into your videos folder
+1. Copy `video_stats.py` into your videos folder
 2. Double-click it
-3. Wait while it analyzes (this can take a while for many videos)
-4. Read the summary at the end
+3. Wait while it analyzes (faster with multiprocessing!)
+4. Read the comprehensive summary at the end
 
 **What you'll see:**
-- **Resolution breakdown:** How many 480p, 720p, 1080p, 4K videos
+- **Resolution breakdown:** How many 480p, 720p, 1080p, 4K videos (with portrait/landscape)
+- **Codec breakdown:** Distribution of H264, H265, VP9, and other codecs
+- **HDR/SDR status:** How many SDR, HDR10, HLG, or Dolby Vision videos
+- **Framerate breakdown:** 24fps, 30fps, 60fps distribution
 - **Duration breakdown:** How many short, medium, and long videos
-- **Portrait vs Landscape:** Vertical vs horizontal videos
+- **File size breakdown:** Videos grouped by size ranges
+- **Bitrate analysis:** Median bitrate for each resolution category
+- Uses multiprocessing for parallel analysis of multiple videos
 - Skips corrupt or unreadable files automatically
 
 ---

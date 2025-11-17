@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide for Misc-Scripts Repository
 
-**Last Updated**: 2025-11-14
+**Last Updated**: 2025-11-17
 **Repository**: Misc-Scripts - A collection of Windows automation, media processing, and system management utilities
 
 ---
@@ -66,7 +66,7 @@ Misc-Scripts/
 │   ├── media_stats/
 │   │   ├── folder_stats.py          # Analyze folder sizes and file counts
 │   │   ├── image_stats.py           # Categorize images by resolution/size
-│   │   ├── video_stats_v2.py        # Categorize videos by resolution/length
+│   │   ├── video_stats.py           # Categorize videos by resolution/length/codec/HDR
 │   │   └── README.md
 │   ├── minimize_windows/
 │   │   ├── minimize_windows.py      # Auto-minimize windows by rules
@@ -413,11 +413,15 @@ Common dependencies used across scripts:
 
 - **Pillow** (`PIL`) - Image processing (image_stats.py, dupefinder.py)
 - **opencv-python-headless** - Computer vision operations (dupefinder.py)
+- **numpy** - Numerical operations (dupefinder.py, used by opencv)
 - **pygetwindow** - Window management (minimize_windows.py)
-- **pywin32** (win32gui, win32con) - Windows API access (minimize_windows.py)
+- **pywin32** (win32gui, win32con) - Windows API access (minimize_windows.py, mimic_keystrokes.py)
 - **pywebview** - Display web content in native window (ha_dashboard_launcher.py)
 - **screeninfo** - Multi-monitor support (ha_dashboard_launcher.py)
+- **keyboard** - Keyboard event handling (mimic_keystrokes.py)
+- **pyautogui** - GUI automation for typing simulation (mimic_keystrokes.py)
 - **pathlib** - Path handling (standard library, Python 3.4+)
+- **multiprocessing** - Parallel processing (folder_stats.py, image_stats.py, video_stats.py) - standard library
 
 ### Batch Scripts
 
@@ -477,6 +481,10 @@ python -m pip install package_name
 
 Based on recent git history, key changes include:
 
+- **Multiprocessing optimization** - Added parallel processing to folder_stats.py, image_stats.py, and video_stats.py for significant performance improvements on large collections
+- **Enhanced video analysis** - video_stats.py (renamed from video_stats_v2.py) now includes codec detection, HDR/SDR status, framerate analysis, and bitrate metrics
+- **Interactive features** - folder_stats.py now prompts for results count when double-clicked
+- **Improved reporting** - Added color-coded file counts in folder_stats.py, file format breakdown in image_stats.py, and top largest files display
 - **Code quality audit** - Improved error handling, added docstrings, fixed deprecation warnings
 - **Documentation restructuring** - Simplified main README, added detailed subfolder READMEs
 - **Bug fixes** - Fixed missing functions, improved interactive mode
