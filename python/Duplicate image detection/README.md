@@ -11,9 +11,11 @@ It's really smart and can detect:
 - Rotated copies (turned 90 degrees, flipped, etc.)
 - Edited versions (brightness changed, filters applied, etc.)
 
-The tool creates a visual report that shows you groups of similar images side-by-side, making it super easy to decide which ones to keep and which to delete.
+**NEW:** Now with a beautiful, easy-to-use graphical interface! No command line needed - just double-click and go.
 
-**Important:** This tool is designed to be safe. It won't delete anything unless you specifically tell it to, and even then, files go to a trash folder first so you can review them.
+The tool shows you groups of similar images side-by-side with thumbnails, making it super easy to decide which ones to keep and which to delete.
+
+**Important:** This tool is designed to be safe. It won't delete anything unless you specifically tell it to, and even then, files go to a `_dupes` folder first so you can review them.
 
 ## How to set up
 
@@ -36,50 +38,50 @@ This installs three helper tools that the script needs to analyze images.
 
 ## How to use it
 
-### Finding duplicates:
+### The Easy Way (Graphical Interface - RECOMMENDED):
 
-**Easy way (just double-click):**
-1. Double-click `dupefinder.py`
-2. When asked, type the path to your photos folder (like `C:\Users\YourName\Pictures`)
-3. Press Enter
-4. When asked for output folder, type where you want the report saved
-5. Wait while it scans your photos - you'll see progress updates
+1. **Double-click** `Launch Duplicate Finder.bat` (or run `python dupefinder_gui.py`)
+2. Click **"Browse..."** and select the folder containing your photos
+3. Click **"Start Scanning"** and wait while the tool analyzes your images
+4. **Review the results** - you'll see groups of similar images with thumbnails
+   - The blue border shows the reference image (usually the best quality)
+   - Click any image to mark it for deletion (it will get a red border)
+   - Click again to unmark it
+5. Use the **helper buttons**:
+   - "Keep Largest" - automatically marks smaller duplicates for deletion in the current group
+   - "Clear All Selections" - unmarks everything in the current group
+   - Navigation buttons to browse through different duplicate groups
+6. When ready, click **"Delete Selected Files"**
+7. Files are safely moved to `_dupes` folder - review them before permanently deleting
 
-**Command line way:**
+**That's it!** The entire process happens in one window with no need to switch between programs or run multiple scripts.
+
+### The Advanced Way (Command Line):
+
+If you prefer the command line or need more control:
+
+**Finding duplicates:**
 ```
 python dupefinder.py "C:\Users\YourName\Pictures" --output "C:\DuplicateReports"
 ```
 
-### What happens next:
+**Reviewing via HTML report:**
+1. Open the generated HTML file in your web browser
+2. Click images to mark for deletion
+3. Export the deletion list
 
-The script will:
-1. Look through all your photos
-2. Remember details about each one (it saves this info so next time is faster)
-3. Compare photos to find similar ones
-4. Create an HTML report file you can open in your web browser
-
-### Reviewing the report:
-
-1. Open the HTML file in your web browser (Chrome, Firefox, Edge, etc.)
-2. You'll see groups of similar images
-3. Click on images you want to delete - they'll get a red border
-4. When you're done marking, click "Export deletion list" at the bottom
-5. This creates a file called `to_delete.json`
-
-### Deleting marked images:
-
-**IMPORTANT:** Files aren't deleted yet! Follow these steps:
-
-1. Make sure `to_delete.json` is in the same folder as `delete_marked.py`
-2. Double-click `delete_marked.py`
-3. Your marked files will be moved to a folder called `_trash`
-4. Check the `_trash` folder to make sure you marked the right files
-5. If everything looks good, you can permanently delete the `_trash` folder
-6. If you made a mistake, just move files back out of `_trash`
+**Deleting marked images:**
+```
+python delete_marked.py
+```
 
 ## Tips and tricks
 
 - **First run is slower:** The script needs to analyze each image. After that, it remembers what it learned, so future runs are much faster
-- **Be careful with marking:** Always review the `_trash` folder before permanently deleting
+- **Quick mode:** Check the "Quick mode" option for faster scanning (less thorough but good for finding exact duplicates)
+- **Use "Keep Largest":** This button automatically keeps the highest quality version and marks smaller duplicates
+- **Navigate with keyboard:** Use arrow keys or scroll through duplicate groups easily
+- **Review before deleting:** Always check the `_dupes` folder before permanently deleting - you can move files back if needed
 - **Large collections:** If you have thousands of photos, the script might take a while the first time. That's normal!
-- **Save your reports:** Keep the HTML report file - you can always go back and review it later
+- **The blue border:** Shows the reference image (highest quality) that the tool thinks you should keep
+- **Similarity percentage:** Each image shows how similar it is to the reference (100% = identical)
