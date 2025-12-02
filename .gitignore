@@ -24,3 +24,8 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Additional
+**/*trash*/        # any directory containing "trash"
+**/*pycache*/      # any directory containing "pycache"
+*.sqlite           # any sqlite file
