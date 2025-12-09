@@ -457,6 +457,20 @@ class ScanningScreen(tk.Frame):
                                         selectforeground=Colors.PRIMARY_TEXT)
         self.details_text.pack(fill=tk.BOTH, expand=True)
 
+        # Add a Back button
+        button_frame = tk.Frame(container, bg=Colors.PRIMARY_BG)
+        button_frame.pack(pady=20)
+
+        self.back_btn = AnimatedButton(button_frame, "← Back to Start",
+                                       command=self.go_back,
+                                       bg=Colors.BUTTON_BG, hover_bg=Colors.ACCENT,
+                                       width=180, height=50)
+        self.back_btn.pack()
+
+    def go_back(self):
+        """Return to welcome screen."""
+        self.controller.show_frame("WelcomeScreen")
+
     def start_progress(self):
         self.loading_dots.start()
 
@@ -1285,12 +1299,23 @@ class DupeFinderApp(tk.Tk):
 
     def run_scan(self):
         """Run the duplicate detection scan in background."""
+        print(f"\n{'='*70}")
+        print("STARTING SCAN")
+        print(f"{'='*70}")
+        print(f"Input folder: {self.input_folder}")
+        print(f"Quick mode: {self.quick_mode}")
+        print(f"Similarity threshold: {self.similarity_threshold}")
+        print(f"{'='*70}\n")
+
         scanning_screen = self.frames["ScanningScreen"]
         scanning_screen.start_progress()
 
         try:
             scanning_screen.update_status("Loading configuration...")
             scanning_screen.add_detail("Initializing duplicate detection engine...")
+            scanning_screen.add_detail(f"Input folder: {self.input_folder}")
+            scanning_screen.add_detail(f"Quick mode: {self.quick_mode}")
+            scanning_screen.add_detail(f"Similarity threshold: {self.similarity_threshold * 100:.0f}%")
 
             cfg = json.loads(json.dumps(DEFAULT_CFG))
 
@@ -1432,15 +1457,32 @@ class DupeFinderApp(tk.Tk):
                 self.after(1000, self.show_results)
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             scanning_screen.stop_progress()
             scanning_screen.update_status("Error occurred")
             scanning_screen.add_detail(f"ERROR: {str(e)}")
-            self.after(100, lambda: messagebox.showerror(
+            scanning_screen.add_detail("\n" + "="*60)
+            scanning_screen.add_detail("Full error traceback:")
+            scanning_screen.add_detail(error_details)
+            scanning_screen.add_detail("="*60)
+
+            # Also print to console for debugging
+            print(f"\n{'='*70}")
+            print("ERROR DURING SCANNING")
+            print(f"{'='*70}")
+            print(error_details)
+            print(f"{'='*70}\n")
+
+            error_msg = str(e)
+            self.after(100, lambda msg=error_msg: messagebox.showerror(
                 "Error",
-                f"An error occurred:\n\n{str(e)}",
+                f"An error occurred during scanning:\n\n{msg}\n\n"
+                "Check the progress details box for full error information.",
                 parent=self
             ))
-            self.show_frame("WelcomeScreen")
+            # Don't automatically return to welcome screen - let user see the error
+            # self.show_frame("WelcomeScreen")
 
     def show_results(self):
         results_screen = self.frames["ResultsScreen"]

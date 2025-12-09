@@ -231,14 +231,30 @@ class FingerprintCache:
 
     def _ensure_tables(self):
         cur = self.conn.cursor()
+
+        # Check if table exists and has old schema
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fingerprints'")
+        table_exists = cur.fetchone() is not None
+
+        if table_exists:
+            # Check if columns are TEXT (new schema) or INTEGER (old schema)
+            cur.execute("PRAGMA table_info(fingerprints)")
+            columns = {row[1]: row[2] for row in cur.fetchall()}
+
+            # If device or inode are INTEGER, we need to recreate the table
+            if columns.get('device') == 'INTEGER' or columns.get('inode') == 'INTEGER':
+                cur.execute("DROP TABLE fingerprints")
+                self.conn.commit()
+
+        # Create table with new schema
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS fingerprints (
                 path TEXT NOT NULL,
                 size INTEGER NOT NULL,
                 mtime_ms INTEGER NOT NULL,
-                device INTEGER,
-                inode INTEGER,
+                device TEXT,
+                inode TEXT,
                 quick_fp TEXT NOT NULL,
                 phash BLOB NOT NULL,
                 keypoints INTEGER NOT NULL,
@@ -272,8 +288,8 @@ class FingerprintCache:
                     str(fid.path),
                     fid.size,
                     fid.mtime_ms,
-                    fid.device,
-                    fid.inode,
+                    str(fid.device) if fid.device is not None else None,
+                    str(fid.inode) if fid.inode is not None else None,
                     fid.quick_fp,
                     phash_blob,
                     fp.keypoint_count,
@@ -511,27 +527,35 @@ def estimate_transform_and_metrics(
     best_model, best_inliers, best_residual, best_matrix = None, 0, float("inf"), None
     model_params = cfg["geometry"]
     for model in cfg["geometry"]["ransac_model_order"]:
-        if len(matches) < 2:
-            break
-        if model == "similarity":
-            M, mask = cv2.estimateAffinePartial2D(pts_a, pts_b, method=cv2.RANSAC,
-                                                  ransacReprojThreshold=model_params["variant"]["reprojection_px"],
-                                                  maxIters=2000, confidence=0.99)
-            if M is None:
+        # Check minimum points required for each model
+        if model == "homography" and len(matches) < 4:
+            continue
+        elif model in ["similarity", "affine"] and len(matches) < 2:
+            continue
+
+        try:
+            if model == "similarity":
+                M, mask = cv2.estimateAffinePartial2D(pts_a, pts_b, method=cv2.RANSAC,
+                                                      ransacReprojThreshold=model_params["variant"]["reprojection_px"],
+                                                      maxIters=2000, confidence=0.99)
+                if M is None:
+                    continue
+                H = np.vstack([M, [0, 0, 1]])
+            elif model == "affine":
+                M, mask = cv2.estimateAffine2D(pts_a, pts_b, method=cv2.RANSAC,
+                                               ransacReprojThreshold=model_params["variant"]["reprojection_px"],
+                                               maxIters=2000, confidence=0.99)
+                if M is None:
+                    continue
+                H = np.vstack([M, [0, 0, 1]])
+            elif model == "homography":
+                H, mask = cv2.findHomography(pts_a, pts_b, cv2.RANSAC, model_params["variant"]["reprojection_px"])
+                if H is None:
+                    continue
+            else:
                 continue
-            H = np.vstack([M, [0, 0, 1]])
-        elif model == "affine":
-            M, mask = cv2.estimateAffine2D(pts_a, pts_b, method=cv2.RANSAC,
-                                           ransacReprojThreshold=model_params["variant"]["reprojection_px"],
-                                           maxIters=2000, confidence=0.99)
-            if M is None:
-                continue
-            H = np.vstack([M, [0, 0, 1]])
-        elif model == "homography":
-            H, mask = cv2.findHomography(pts_a, pts_b, cv2.RANSAC, model_params["variant"]["reprojection_px"])
-            if H is None:
-                continue
-        else:
+        except cv2.error as e:
+            # Skip this model if OpenCV throws an error
             continue
         mask = mask.reshape(-1) if mask is not None else None
         inliers = int(mask.sum()) if mask is not None else 0
@@ -1233,7 +1257,7 @@ def main():
                 print("\nCancelled.")
                 input("\nPress Enter to exit...")
                 return
-            
+
             input_dir = params['input']
             out_dir = params['output']
             cfg = load_config(params['config'])
@@ -1249,26 +1273,36 @@ def main():
             parser.add_argument("--rebuild-cache", action="store_true", help="Ignore existing cache and recompute fingerprints")
             parser.add_argument("--dry-run", action="store_true", help="Process files but do not write reports")
             args = parser.parse_args()
-            
+
             input_dir = Path(args.input).resolve()
             out_dir = Path(args.output).resolve()
             cfg = load_config(Path(args.config) if args.config else None)
             quick = args.quick
             rebuild_cache = args.rebuild_cache
             dry_run = args.dry_run
-        
+
+        print(f"\nStarting processing...")
+        print(f"Input directory: {input_dir}")
+        print(f"Output directory: {out_dir}")
+        print(f"Quick mode: {quick}")
+
         cv2.setNumThreads(cfg["determinism"]["opencv_threads"])
         np.random.seed(cfg["determinism"]["seed"])
-        
+
+        print(f"\nCalling process_directory...")
         json_path, csv_path, html_path = process_directory(
-            input_dir, out_dir, cfg, 
-            quick=quick, 
-            rebuild_cache=rebuild_cache, 
+            input_dir, out_dir, cfg,
+            quick=quick,
+            rebuild_cache=rebuild_cache,
             dry_run=dry_run
         )
-        
+
         if json_path is None:
             print("\nProcessing failed or no images found.")
+            print("Please check:")
+            print(f"  1. The input directory exists: {input_dir}")
+            print(f"  2. The directory contains image files (jpg, png, etc.)")
+            print(f"  3. You have read permissions for the directory")
         elif dry_run:
             print("\nDry run complete. Reports not written.")
         else:
@@ -1280,7 +1314,7 @@ def main():
                 print(f"CSV report:  {csv_path}")
             print(f"HTML report: {html_path}")
             print("\nOpen the HTML report in your browser to view results.")
-        
+
     except KeyboardInterrupt:
         print("\n\nInterrupted by user.")
     except Exception as e:
@@ -1288,8 +1322,10 @@ def main():
         print("ERROR")
         print(f"{'='*70}")
         print(f"\n{type(e).__name__}: {e}")
+        print("\nFull error details:")
         import traceback
         traceback.print_exc()
+        print("\nIf you need help, please report this error with the full traceback above.")
     finally:
         input("\nPress Enter to exit...")
 
