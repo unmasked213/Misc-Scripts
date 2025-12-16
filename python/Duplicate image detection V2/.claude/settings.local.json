@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(move CLAUDE.md \"shared_ui_docs\\CLAUDE.md\")",
+      "Bash(move:*)",
+      "Bash(move shared_ui_context.md \"shared_ui_docs\\context.md\")",
+      "Bash(move IMPLEMENTATION_STATUS.md \"shared_ui_docs\\implementation_status.md\")",
+      "Bash(ls:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

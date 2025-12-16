@@ -1,0 +1,11 @@
+# Duplicate Image Finder - V2 Web Interface
+# Install with: pip install -r requirements.txt
+
+# Core detection engine
+opencv-python-headless>=4.5.0
+numpy>=1.19.0
+pillow>=8.0.0
+
+# Web server
+flask>=2.0.0
+flask-cors>=3.0.0

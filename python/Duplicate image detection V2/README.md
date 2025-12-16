@@ -11,11 +11,28 @@ It's really smart and can detect:
 - Rotated copies (turned 90 degrees, flipped, etc.)
 - Edited versions (brightness changed, filters applied, etc.)
 
-**NEW:** Now with a beautiful, easy-to-use graphical interface! No command line needed - just double-click and go.
-
 The tool shows you groups of similar images side-by-side with thumbnails, making it super easy to decide which ones to keep and which to delete.
 
 **Important:** This tool is designed to be safe. It won't delete anything unless you specifically tell it to, and even then, files go to a `_dupes` folder first so you can review them.
+
+---
+
+## Two Interfaces Available
+
+### V2 Web Interface (NEW - RECOMMENDED)
+
+A modern browser-based interface built on the Shared UI Design System with:
+- Light and dark theme support
+- Real-time scan progress with Server-Sent Events
+- Responsive image grid
+- Keyboard navigation
+- Accessible focus states
+
+### V1 Desktop GUI (Legacy)
+
+The original Tkinter desktop application. Still functional but will be deprecated.
+
+---
 
 ## How to set up
 
@@ -31,14 +48,40 @@ If you don't have Python installed:
 Open Command Prompt (search for "cmd" in Windows) and type:
 
 ```
-pip install opencv-python-headless numpy pillow
+pip install -r requirements.txt
 ```
 
-This installs three helper tools that the script needs to analyze images.
+Or install manually:
+```
+pip install opencv-python-headless numpy pillow flask flask-cors
+```
 
 ## How to use it
 
-### The Easy Way (Graphical Interface - RECOMMENDED):
+### V2 Web Interface (RECOMMENDED):
+
+1. **Double-click** `Launch Web Interface.bat` (or run `python server.py`)
+2. Open your browser to **http://localhost:5000**
+3. Click the drop zone and enter the folder path to scan
+4. Adjust the **similarity threshold** (default 85%)
+5. Optionally enable **Quick mode** for faster but less thorough scanning
+6. Click **"Start Scanning"** and watch real-time progress
+7. **Review the results** - groups of similar images displayed in a grid
+   - Blue border = reference image (best quality)
+   - Click images to mark for deletion (red border)
+8. Use helper buttons:
+   - **Keep Largest** - marks smaller files in current group
+   - **Keep Largest (All 100%)** - batch process all exact duplicates
+   - **Clear Marks** - unmark all in current group
+9. Click **"Delete Marked"** to move files to `_dupes` folder
+10. Use **Undo** if needed
+
+**Features:**
+- Toggle dark/light theme with the moon/sun icon
+- Navigate groups with arrow keys
+- Keyboard-accessible (Tab, Enter, Space)
+
+### V1 Desktop GUI (Legacy):
 
 1. **Double-click** `Launch Duplicate Finder.bat` (or run `python dupefinder_gui.py`)
 2. Click **"Browse..."** and select the folder containing your photos
@@ -53,8 +96,6 @@ This installs three helper tools that the script needs to analyze images.
    - Navigation buttons to browse through different duplicate groups
 6. When ready, click **"Delete Selected Files"**
 7. Files are safely moved to `_dupes` folder - review them before permanently deleting
-
-**That's it!** The entire process happens in one window with no need to switch between programs or run multiple scripts.
 
 ### The Advanced Way (Command Line):
 
