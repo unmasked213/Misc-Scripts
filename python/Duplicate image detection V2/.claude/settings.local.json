@@ -6,7 +6,16 @@
       "Bash(move shared_ui_context.md \"shared_ui_docs\\context.md\")",
       "Bash(move IMPLEMENTATION_STATUS.md \"shared_ui_docs\\implementation_status.md\")",
       "Bash(ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(powershell -Command \"(Get-Content ''D:\\scripts\\Misc Scripts\\Misc-Scripts\\python\\Duplicate image detection V2\\index.html'').Length\")",
+      "Bash(powershell:*)",
+      "Bash(python:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(curl:*)",
+      "Bash(tasklist /FI \"PID eq 41024\")",
+      "Bash(taskkill /PID 41024 /F)"
     ],
     "deny": [],
     "ask": []

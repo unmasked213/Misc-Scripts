@@ -32,7 +32,7 @@ from dupefinder import (
     load_image_normalized, build_thumbnail, assign_buckets, build_lsh_map,
     phash_similarity_scores, extract_keypoints, match_descriptors,
     estimate_transform_and_metrics, decide_label, build_clusters,
-    PairDecision, PairMetrics, Cluster
+    reconstruct_keypoints, resize_for_features, PairDecision, PairMetrics, Cluster
 )
 
 app = Flask(__name__, static_folder='.')
@@ -40,6 +40,11 @@ CORS(app)
 
 # Global state for scan sessions
 scan_sessions: Dict[str, dict] = {}
+
+# Heartbeat tracking for auto-shutdown
+import time
+last_heartbeat = time.time()
+HEARTBEAT_TIMEOUT = 30  # Shutdown if no heartbeat for 30 seconds
 
 
 def create_session() -> str:
@@ -180,14 +185,27 @@ def run_scan_thread(session_id: str, folder: Path, quick_mode: bool, threshold: 
         buckets = assign_buckets(list(stats.keys()), stats, cfg)
         pairs = []
 
-        comparison_count = 0
+        # Pre-calculate total comparisons for accurate progress
+        total_comparisons = 0
+        bucket_comparison_counts = {}
         for bucket_key, paths in buckets.items():
             if len(paths) < 2:
                 continue
-
             phash_map = {p: fingerprints[p].phash64_8x for p in paths}
             lsh_map = build_lsh_map(phash_map, cfg['blocking']['lsh_hamming_radius'])
+            bucket_pairs = 0
+            for p in paths:
+                for q in lsh_map[p]:
+                    if p < q:
+                        bucket_pairs += 1
+            bucket_comparison_counts[bucket_key] = (paths, phash_map, lsh_map, bucket_pairs)
+            total_comparisons += bucket_pairs
 
+        if total_comparisons == 0:
+            total_comparisons = 1  # Avoid division by zero
+
+        comparison_count = 0
+        for bucket_key, (paths, phash_map, lsh_map, _) in bucket_comparison_counts.items():
             for i, p in enumerate(paths):
                 for q in lsh_map[p]:
                     if p >= q:
@@ -197,24 +215,42 @@ def run_scan_thread(session_id: str, folder: Path, quick_mode: bool, threshold: 
                     fp_b = fingerprints[q]
                     sim, _ = phash_similarity_scores(fp_a.phash64_8x, fp_b.phash64_8x)
 
-                    if quick_mode:
+                    # Skip geometric verification for very high pHash matches
+                    skip_geometric_thresh = cfg['similarity'].get('phash_skip_geometric', 0.97)
+
+                    if quick_mode or sim >= skip_geometric_thresh:
+                        # Quick mode OR high-confidence match - skip expensive geometric verification
                         metrics = PairMetrics(
                             phash_similarity=sim, inliers=0,
                             coverage_a=0.0, coverage_b=0.0,
-                            residual_median_px=float('inf'), model='none'
+                            residual_median_px=float('inf'), model='phash_only'
                         )
                         label = 'duplicate' if sim >= cfg['similarity']['phash_duplicate'] else \
                                'variant' if sim >= cfg['similarity']['phash_variant'] else 'different'
                         pairs.append(PairDecision(a=p, b=q, label=label, metrics=metrics))
                     else:
-                        img_a = load_image_normalized(p, cfg)
-                        img_b = load_image_normalized(q, cfg)
+                        # Use cached descriptors and keypoints if available
+                        desc_a = fp_a.descriptors
+                        desc_b = fp_b.descriptors
+                        kps_a = reconstruct_keypoints(fp_a.keypoints_data) if fp_a.keypoints_data else []
+                        kps_b = reconstruct_keypoints(fp_b.keypoints_data) if fp_b.keypoints_data else []
 
-                        if img_a is None or img_b is None:
-                            continue
+                        # Fallback to image loading if cache doesn't have descriptors
+                        if desc_a is None or desc_b is None:
+                            img_a = load_image_normalized(p, cfg)
+                            img_b = load_image_normalized(q, cfg)
 
-                        kps_a, desc_a = extract_keypoints(img_a, detector)
-                        kps_b, desc_b = extract_keypoints(img_b, detector)
+                            if img_a is None or img_b is None:
+                                continue
+
+                            # Resize for faster feature extraction
+                            max_dim = cfg['features'].get('max_dimension', 1024)
+                            img_a = resize_for_features(img_a, max_dim)
+                            img_b = resize_for_features(img_b, max_dim)
+
+                            kps_a, desc_a = extract_keypoints(img_a, detector)
+                            kps_b, desc_b = extract_keypoints(img_b, detector)
+
                         matches = match_descriptors(desc_a, desc_b, cfg)
 
                         model_name, geo_metrics = estimate_transform_and_metrics(
@@ -230,11 +266,13 @@ def run_scan_thread(session_id: str, folder: Path, quick_mode: bool, threshold: 
 
                     comparison_count += 1
                     if comparison_count % 20 == 0:
-                        progress = 50 + int((comparison_count / max(1, len(pairs) + 50)) * 40)
+                        # Progress: 50-90% for comparison phase
+                        progress = 50 + int((comparison_count / total_comparisons) * 40)
                         emit('progress', {
                             'current': comparison_count,
+                            'total': total_comparisons,
                             'percent': min(90, progress),
-                            'message': f'Compared {comparison_count} pairs...'
+                            'message': f'Comparing {comparison_count}/{total_comparisons}...'
                         })
 
         # Build clusters
@@ -411,9 +449,10 @@ def mark_batch():
 
 @app.route('/api/delete', methods=['POST'])
 def delete_marked():
-    """Move marked files to _dupes folder."""
+    """Move marked files to _dupes folder or permanently delete them."""
     data = request.json
     session_id = data.get('session_id')
+    permanent = data.get('permanent', False)
 
     session = get_session(session_id)
     if not session:
@@ -426,12 +465,16 @@ def delete_marked():
     if not input_folder:
         return jsonify({'error': 'No input folder set'}), 400
 
-    dupes_dir = input_folder / '_dupes'
-    dupes_dir.mkdir(exist_ok=True)
-
     moved = []
+    deleted = []
     failed = []
     deletion_record = []
+    dupes_dir = None
+
+    if not permanent:
+        # Create _dupes folder for move operation
+        dupes_dir = input_folder / '_dupes'
+        dupes_dir.mkdir(exist_ok=True)
 
     for path_str in list(session['marked']):
         file_path = Path(path_str)
@@ -441,34 +484,50 @@ def delete_marked():
                 failed.append({'path': path_str, 'error': 'File not found'})
                 continue
 
-            # Generate unique destination
-            dest = dupes_dir / file_path.name
-            if dest.exists():
-                stem = file_path.stem
-                suffix = file_path.suffix
-                counter = 1
-                dest = dupes_dir / f'{stem}_{counter}{suffix}'
-                while dest.exists():
-                    counter += 1
+            if permanent:
+                # Permanently delete the file
+                file_path.unlink()
+                deleted.append({'path': path_str})
+                session['marked'].remove(path_str)
+            else:
+                # Move to _dupes folder
+                # Generate unique destination
+                dest = dupes_dir / file_path.name
+                if dest.exists():
+                    stem = file_path.stem
+                    suffix = file_path.suffix
+                    counter = 1
                     dest = dupes_dir / f'{stem}_{counter}{suffix}'
+                    while dest.exists():
+                        counter += 1
+                        dest = dupes_dir / f'{stem}_{counter}{suffix}'
 
-            shutil.move(str(file_path), str(dest))
-            moved.append({'original': path_str, 'destination': str(dest)})
-            deletion_record.append((path_str, str(dest)))
-            session['marked'].remove(path_str)
+                shutil.move(str(file_path), str(dest))
+                moved.append({'original': path_str, 'destination': str(dest)})
+                deletion_record.append((path_str, str(dest)))
+                session['marked'].remove(path_str)
 
         except Exception as e:
             failed.append({'path': path_str, 'error': str(e)})
 
-    if deletion_record:
+    # Only record history for move operations (undo is possible)
+    if deletion_record and not permanent:
         session['deletion_history'].append(deletion_record)
 
-    return jsonify({
-        'moved': len(moved),
+    response_data = {
         'failed': len(failed),
-        'details': {'moved': moved, 'failed': failed},
-        'dupes_folder': str(dupes_dir)
-    })
+        'details': {'failed': failed}
+    }
+
+    if permanent:
+        response_data['deleted'] = len(deleted)
+        response_data['details']['deleted'] = deleted
+    else:
+        response_data['moved'] = len(moved)
+        response_data['details']['moved'] = moved
+        response_data['dupes_folder'] = str(dupes_dir)
+
+    return jsonify(response_data)
 
 
 @app.route('/api/undo', methods=['POST'])
@@ -589,8 +648,31 @@ def open_folder():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    """Receive heartbeat from browser to keep server alive."""
+    global last_heartbeat
+    last_heartbeat = time.time()
+    return jsonify({'status': 'ok'})
+
+
+def check_heartbeat():
+    """Background thread to check for heartbeat timeout and shutdown."""
+    global last_heartbeat
+    while True:
+        time.sleep(5)  # Check every 5 seconds
+        if time.time() - last_heartbeat > HEARTBEAT_TIMEOUT:
+            print('\nNo heartbeat received - browser tab closed. Shutting down...')
+            os._exit(0)
+
+
 if __name__ == '__main__':
     import webbrowser
+    import os
+
+    # Start heartbeat checker thread
+    heartbeat_thread = threading.Thread(target=check_heartbeat, daemon=True)
+    heartbeat_thread.start()
 
     print('\n' + '='*60)
     print('Duplicate Image Finder - Web Interface')

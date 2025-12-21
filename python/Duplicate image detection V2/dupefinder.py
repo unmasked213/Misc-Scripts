@@ -80,8 +80,9 @@ except ImportError as e:
 Image.MAX_IMAGE_PIXELS = 178956970
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-# Determinism: single-threaded OpenCV and seeded NumPy RNG.
-cv2.setNumThreads(1)
+# Seeded NumPy RNG for reproducibility.
+# Note: OpenCV threading is now enabled for better performance.
+# Set cv2.setNumThreads(1) if you need fully deterministic results.
 np.random.seed(1337)
 
 ###############################################################################
@@ -113,8 +114,9 @@ DEFAULT_CFG = {
     },
     "features": {
         "detector": "ORB",
+        "max_dimension": 1024,  # Resize images to this max dimension before feature extraction
         "orb": {
-            "nfeatures": 1200,
+            "nfeatures": 800,
             "scaleFactor": 1.2,
             "nlevels": 8,
             "edgeThreshold": 15,
@@ -143,6 +145,7 @@ DEFAULT_CFG = {
     "similarity": {
         "phash_duplicate": 0.93,
         "phash_variant": 0.80,
+        "phash_skip_geometric": 0.97,  # Skip geometric verification if pHash >= this (very high confidence)
         "low_texture_keypoints_min": 120,
         "low_texture_phash_duplicate": 0.96,
         "low_texture_phash_variant": 0.88,
@@ -190,6 +193,8 @@ class FileId:
 class Fingerprint:
     phash64_8x: List[int]
     keypoint_count: int
+    descriptors: Optional[np.ndarray] = None  # ORB descriptors for geometric matching
+    keypoints_data: Optional[List[Tuple[float, float, float, float, float, int, int]]] = None  # Serialized keypoints
 
 
 @dataclass
@@ -237,16 +242,16 @@ class FingerprintCache:
         table_exists = cur.fetchone() is not None
 
         if table_exists:
-            # Check if columns are TEXT (new schema) or INTEGER (old schema)
+            # Check schema version - look for descriptors column
             cur.execute("PRAGMA table_info(fingerprints)")
             columns = {row[1]: row[2] for row in cur.fetchall()}
 
-            # If device or inode are INTEGER, we need to recreate the table
-            if columns.get('device') == 'INTEGER' or columns.get('inode') == 'INTEGER':
+            # If missing descriptors column or old schema, recreate
+            if 'descriptors' not in columns or columns.get('device') == 'INTEGER' or columns.get('inode') == 'INTEGER':
                 cur.execute("DROP TABLE fingerprints")
                 self.conn.commit()
 
-        # Create table with new schema
+        # Create table with new schema including descriptors
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS fingerprints (
@@ -258,6 +263,8 @@ class FingerprintCache:
                 quick_fp TEXT NOT NULL,
                 phash BLOB NOT NULL,
                 keypoints INTEGER NOT NULL,
+                descriptors BLOB,
+                keypoints_data BLOB,
                 PRIMARY KEY (path, quick_fp)
             );
             """
@@ -268,22 +275,57 @@ class FingerprintCache:
         with self._lock:
             cur = self.conn.cursor()
             cur.execute(
-                "SELECT phash, keypoints FROM fingerprints WHERE path=? AND quick_fp=?",
+                "SELECT phash, keypoints, descriptors, keypoints_data FROM fingerprints WHERE path=? AND quick_fp=?",
                 (str(fid.path), fid.quick_fp),
             )
             row = cur.fetchone()
         if row:
-            phash_blob, keypoints = row
+            phash_blob, keypoints, desc_blob, kp_blob = row
             phash64_8x = list(struct.unpack("<{}Q".format(len(phash_blob) // 8), phash_blob))
-            return Fingerprint(phash64_8x=phash64_8x, keypoint_count=keypoints)
+
+            # Deserialize descriptors if present
+            descriptors = None
+            if desc_blob:
+                desc_array = np.frombuffer(desc_blob, dtype=np.uint8)
+                if len(desc_array) > 0 and keypoints > 0:
+                    # ORB descriptors are 32 bytes each
+                    descriptors = desc_array.reshape(keypoints, 32)
+
+            # Deserialize keypoints data if present
+            keypoints_data = None
+            if kp_blob:
+                # Each keypoint: 7 values (x, y, size, angle, response, octave, class_id)
+                kp_array = np.frombuffer(kp_blob, dtype=np.float64)
+                if len(kp_array) > 0 and keypoints > 0:
+                    kp_array = kp_array.reshape(keypoints, 7)
+                    keypoints_data = [tuple(kp) for kp in kp_array]
+
+            return Fingerprint(
+                phash64_8x=phash64_8x,
+                keypoint_count=keypoints,
+                descriptors=descriptors,
+                keypoints_data=keypoints_data
+            )
         return None
 
     def set(self, fid: FileId, fp: Fingerprint) -> None:
         phash_blob = struct.pack("<{}Q".format(len(fp.phash64_8x)), *fp.phash64_8x)
+
+        # Serialize descriptors
+        desc_blob = None
+        if fp.descriptors is not None and len(fp.descriptors) > 0:
+            desc_blob = fp.descriptors.tobytes()
+
+        # Serialize keypoints data
+        kp_blob = None
+        if fp.keypoints_data is not None and len(fp.keypoints_data) > 0:
+            kp_array = np.array(fp.keypoints_data, dtype=np.float64)
+            kp_blob = kp_array.tobytes()
+
         with self._lock:
             cur = self.conn.cursor()
             cur.execute(
-                "REPLACE INTO fingerprints (path, size, mtime_ms, device, inode, quick_fp, phash, keypoints) VALUES (?,?,?,?,?,?,?,?);",
+                "REPLACE INTO fingerprints (path, size, mtime_ms, device, inode, quick_fp, phash, keypoints, descriptors, keypoints_data) VALUES (?,?,?,?,?,?,?,?,?,?);",
                 (
                     str(fid.path),
                     fid.size,
@@ -293,6 +335,8 @@ class FingerprintCache:
                     fid.quick_fp,
                     phash_blob,
                     fp.keypoint_count,
+                    desc_blob,
+                    kp_blob,
                 ),
             )
             self.conn.commit()
@@ -422,6 +466,31 @@ def build_thumbnail(img: np.ndarray, max_px: int) -> Image.Image:
         pil_img.thumbnail((max_px, max_px), Image.LANCZOS)
     return pil_img
 
+
+def resize_for_features(img: np.ndarray, max_dimension: int) -> np.ndarray:
+    """
+    Resize image if larger than max_dimension for faster feature extraction.
+
+    Args:
+        img: RGB numpy array
+        max_dimension: Maximum width or height in pixels
+
+    Returns:
+        Resized numpy array (or original if already small enough)
+    """
+    h, w = img.shape[:2]
+    if max(h, w) <= max_dimension:
+        return img
+
+    if w > h:
+        new_w = max_dimension
+        new_h = int(h * max_dimension / w)
+    else:
+        new_h = max_dimension
+        new_w = int(w * max_dimension / h)
+
+    return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
 def dct_2d(arr: np.ndarray) -> np.ndarray:
     return cv2.dct(arr.astype(np.float32))
 
@@ -490,6 +559,25 @@ def extract_keypoints(img: np.ndarray, detector) -> Tuple[List[cv2.KeyPoint], np
     if kps is None:
         return [], None
     return kps, desc
+
+
+def reconstruct_keypoints(keypoints_data: List[Tuple[float, float, float, float, float, int, int]]) -> List[cv2.KeyPoint]:
+    """Reconstruct cv2.KeyPoint objects from serialized data."""
+    if not keypoints_data:
+        return []
+    keypoints = []
+    for x, y, size, angle, response, octave, class_id in keypoints_data:
+        kp = cv2.KeyPoint(
+            x=float(x),
+            y=float(y),
+            size=float(size),
+            angle=float(angle),
+            response=float(response),
+            octave=int(octave),
+            class_id=int(class_id)
+        )
+        keypoints.append(kp)
+    return keypoints
 
 def match_descriptors(desc_a: np.ndarray, desc_b: np.ndarray, cfg) -> List[cv2.DMatch]:
     if desc_a is None or desc_b is None or len(desc_a) == 0 or len(desc_b) == 0:
@@ -606,8 +694,26 @@ def compute_fingerprint(path: Path, cfg, detector, cache: FingerprintCache) -> O
     if img is None:
         return None
     phashes = compute_all_phashes(img, cfg)
-    kps, _ = extract_keypoints(img, get_feature_detector(cfg))
-    fp = Fingerprint(phash64_8x=phashes, keypoint_count=len(kps))
+
+    # Resize for faster feature extraction (pHash uses full image, features use resized)
+    max_dim = cfg["features"].get("max_dimension", 1024)
+    img_resized = resize_for_features(img, max_dim)
+    kps, desc = extract_keypoints(img_resized, detector)
+
+    # Serialize keypoints for caching
+    keypoints_data = None
+    if kps:
+        keypoints_data = [
+            (kp.pt[0], kp.pt[1], kp.size, kp.angle, kp.response, kp.octave, kp.class_id)
+            for kp in kps
+        ]
+
+    fp = Fingerprint(
+        phash64_8x=phashes,
+        keypoint_count=len(kps),
+        descriptors=desc,
+        keypoints_data=keypoints_data
+    )
     cache.set(fid, fp)
     return fp
 
@@ -1012,7 +1118,12 @@ def write_html_report(out_dir: Path, clusters: List[Cluster], cfg, detector) -> 
 
 def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_cache=False, dry_run=False):
     out_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = Path(cfg["cache"]["path"])
+
+    # Use temporary cache (deleted after scan completes)
+    import tempfile
+    temp_cache = tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False)
+    cache_path = Path(temp_cache.name)
+    temp_cache.close()
     cache = FingerprintCache(cache_path)
     
     print(f"\nScanning directory: {input_dir}")
@@ -1139,6 +1250,13 @@ def process_directory(input_dir: Path, out_dir: Path, cfg, quick=False, rebuild_
     html_path = write_html_report(out_dir, clusters, cfg, detector)
     
     cache.close()
+
+    # Delete temporary cache file
+    try:
+        cache_path.unlink()
+    except Exception:
+        pass
+
     return json_path, csv_path, html_path
 
 ###############################################################################
