@@ -6,6 +6,10 @@
 // @match        *://*/*
 // @run-at       document-idle
 // @grant        none
+// @author       Unmasked213
+// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
+// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
+
 // ==/UserScript==
 
 (function () {

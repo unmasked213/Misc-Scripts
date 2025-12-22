@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      6.0
 // @description  Downloads images with double-click, prevents duplicates, ensures working downloads
-// @author       unmasked213
+// @author       Unmasked213
 // @match        *://*/*
 // @grant        GM_download
 // @grant        GM_xmlhttpRequest
@@ -13,6 +13,8 @@
 // @grant        GM_listValues
 // @grant        GM_deleteValue
 // @run-at       document-start
+// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
+// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
 // ==/UserScript==
 
 (() => {

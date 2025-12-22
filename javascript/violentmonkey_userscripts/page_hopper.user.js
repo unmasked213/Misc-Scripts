@@ -3,7 +3,7 @@
 // @namespace    http://example.com/pagehop
 // @version      7.0
 // @description  Navigate paginated websites with advanced detection and minimal false positives. Handles high page numbers and embedded digits correctly.
-// @author       unmasked213
+// @author       Unmasked213
 // @match        *://*/*
 // @exclude      *://chatgpt.com/*
 // @exclude      *://mail.google.com/*
@@ -11,6 +11,8 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-start
+// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/page_hopper.user.js
+// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/page_hopper.user.js
 // ==/UserScript==
 
 (function() {
