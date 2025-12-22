@@ -43,8 +43,13 @@ scan_sessions: Dict[str, dict] = {}
 
 # Heartbeat tracking for auto-shutdown
 import time
+import atexit
+import signal
+import sys
+
 last_heartbeat = time.time()
-HEARTBEAT_TIMEOUT = 30  # Shutdown if no heartbeat for 30 seconds
+HEARTBEAT_TIMEOUT = 15  # Shutdown if no heartbeat for 15 seconds (reduced from 30)
+server_should_shutdown = False
 
 
 def create_session() -> str:
@@ -656,14 +661,69 @@ def heartbeat():
     return jsonify({'status': 'ok'})
 
 
+@app.route('/api/shutdown', methods=['POST', 'GET'])  # Accept GET too for testing
+def shutdown():
+    """Immediate shutdown when browser tab closes."""
+    import os
+
+    # Schedule shutdown after response is sent
+    def delayed_shutdown():
+        time.sleep(0.5)  # Give time for response to be sent
+
+        # Try forceful termination
+        try:
+            force_terminate()
+        except:
+            pass
+
+        os._exit(0)  # Fallback to os._exit
+
+    threading.Thread(target=delayed_shutdown, daemon=True).start()
+    return '', 204  # No content response
+
+
+def force_terminate():
+    """Forcefully terminate the process using multiple methods."""
+    import subprocess
+    import os
+
+    pid = os.getpid()
+
+    # Method 1: Use taskkill command (most reliable on Windows)
+    try:
+        subprocess.Popen(['taskkill', '/F', '/PID', str(pid)],
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+        time.sleep(0.5)
+    except:
+        pass
+
+    # Method 2: Windows API (fallback)
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(1, False, pid)
+        kernel32.TerminateProcess(handle, 0)
+    except:
+        pass
+
+
 def check_heartbeat():
     """Background thread to check for heartbeat timeout and shutdown."""
-    global last_heartbeat
+    global last_heartbeat, server_should_shutdown
+    import os
     while True:
-        time.sleep(5)  # Check every 5 seconds
-        if time.time() - last_heartbeat > HEARTBEAT_TIMEOUT:
-            print('\nNo heartbeat received - browser tab closed. Shutting down...')
-            os._exit(0)
+        time.sleep(3)  # Check every 3 seconds
+        elapsed = time.time() - last_heartbeat
+        if elapsed > HEARTBEAT_TIMEOUT:
+            server_should_shutdown = True
+
+            # Try multiple termination methods
+            try:
+                force_terminate()
+            except:
+                pass
+
+            os._exit(0)  # Force immediate termination
 
 
 if __name__ == '__main__':
@@ -674,16 +734,8 @@ if __name__ == '__main__':
     heartbeat_thread = threading.Thread(target=check_heartbeat, daemon=True)
     heartbeat_thread.start()
 
-    print('\n' + '='*60)
-    print('Duplicate Image Finder - Web Interface')
-    print('='*60)
-    print('\nStarting server...')
-    print('\nOpening browser to http://localhost:5000')
-    print('\nKeep this window open while using the app.')
-    print('Press Ctrl+C to stop the server when done.')
-    print('='*60 + '\n')
-
     # Auto-open browser
     webbrowser.open('http://localhost:5000')
 
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
+    # Run Flask server
+    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True, use_reloader=False)

@@ -15,7 +15,9 @@
       "Bash(findstr:*)",
       "Bash(curl:*)",
       "Bash(tasklist /FI \"PID eq 41024\")",
-      "Bash(taskkill /PID 41024 /F)"
+      "Bash(taskkill /PID 41024 /F)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\" /FO CSV)",
+      "Bash(del \"Launch Duplicate Finder Web (new).vbs\" \"server_wrapper.py\" \"test_shutdown.html\" \"check_python_processes.py\")"
     ],
     "deny": [],
     "ask": []
