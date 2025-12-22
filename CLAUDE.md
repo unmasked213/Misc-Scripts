@@ -1,17 +1,18 @@
 # CLAUDE.md - AI Assistant Guide for Misc-Scripts Repository
 
-**Last Updated**: 2025-11-17
+**Last Updated**: 2025-12-22
 **Repository**: Misc-Scripts - A collection of Windows automation, media processing, and system management utilities
 
 ---
 
 ## Repository Overview
 
-This repository contains practical utility scripts for Windows users, organized into three main categories:
+This repository contains practical utility scripts for Windows users, organized into four main categories:
 
 - **`batch/`** - Windows batch scripts for system automation
 - **`python/`** - Python scripts for media processing, window management, and utilities
-- **typescript/`** - TypeScript/React components for UI applications
+- **`javascript/`** - Browser userscripts for enhanced web browsing (Violentmonkey/Tampermonkey)
+- **`typescript/`** - TypeScript/React components for UI applications
 
 Each script folder contains its own detailed README.md with user-friendly setup and usage instructions.
 
@@ -53,16 +54,19 @@ When working with this codebase, adhere to these fundamental principles:
 ```
 Misc-Scripts/
 ├── README.md                          # High-level overview with links to all scripts
+├── CLAUDE.md                          # This file - AI assistant guide
 ├── batch/
 │   ├── clean_ghosts.bat              # Kill duplicate AI assistant/browser processes
 │   └── mp3 converter/
 │       ├── any2mp3.bat               # Convert audio files to MP3
 │       └── README.md
 ├── python/
-│   ├── Duplicate image detection/
-│   │   ├── dupefinder.py            # Find similar/duplicate images
-│   │   ├── delete_marked.py          # Delete images marked in HTML report
-│   │   └── README.md
+│   ├── Duplicate image detection V2/
+│   │   ├── dupefinder.py            # Core duplicate detection engine
+│   │   ├── server.py                # Flask web server for browser UI
+│   │   ├── install_dependencies.bat # Easy dependency installation
+│   │   ├── README.md                # Full documentation
+│   │   └── QUICK_START.md           # Quick onboarding guide
 │   ├── media_stats/
 │   │   ├── folder_stats.py          # Analyze folder sizes and file counts
 │   │   ├── image_stats.py           # Categorize images by resolution/size
@@ -82,6 +86,14 @@ Misc-Scripts/
 │   └── create_list_of_filenames/
 │       ├── list_files_by_folder.py  # Generate organized file lists
 │       └── README.md
+├── javascript/
+│   └── violentmonkey_userscripts/    # Browser userscripts
+│       ├── global_short_video_hider.user.js    # Hide short videos on any site
+│       ├── page_hopper.user.js                 # Navigate paginated sites with [ ]
+│       ├── rectangle_link_selector.user.js     # Select links by drawing rectangle
+│       ├── reddit_to_libreddit_redirector.user.js  # Redirect Reddit to Libreddit
+│       ├── universal_image_downloader.user.js  # Download images from any site
+│       └── video_management_examplesite.user.js    # Video management utilities
 └── typescript/
     ├── meta_prompt_creator.tsx       # Advanced markdown UI component
     └── meta_prompt_creator_simplified.tsx
@@ -225,6 +237,73 @@ pause
 - Include **inline styles** when appropriate for self-contained components
 - Use **TypeScript** for type safety
 - Comment complex logic, especially custom markdown parsing
+
+### JavaScript/Violentmonkey Userscripts
+
+Userscripts follow a specific format for browser extension compatibility:
+
+#### File Header Format (UserScript Metadata Block)
+```javascript
+// ==UserScript==
+// @name         Script Name
+// @namespace    script-namespace
+// @version      1.0
+// @description  Brief description of what the script does
+// @match        *://*/*
+// @run-at       document-idle
+// @grant        none
+// @author       Unmasked213
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/script_name.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/script_name.user.js
+// ==/UserScript==
+```
+
+#### Script Structure
+```javascript
+(function() {
+    'use strict';
+
+    // Configuration constants at the top
+    const CONFIG = {
+        SETTING_1: 'value',
+        SETTING_2: 100,
+    };
+
+    // State management
+    const state = {
+        isActive: false,
+        // ...
+    };
+
+    // Helper functions
+    function helperFunction() {
+        // Implementation
+    }
+
+    // Main logic
+    function init() {
+        // Initialize script
+    }
+
+    // Start the script
+    init();
+})();
+```
+
+#### Best Practices for Userscripts
+- **Use IIFE** (Immediately Invoked Function Expression) to avoid polluting global scope
+- **'use strict'** at the top of the IIFE
+- **Configuration constants** at the top in a CONFIG object for easy customization
+- **Minimal @grant permissions** - only request what's needed
+- **@run-at document-idle** for most scripts (unless early interception needed)
+- **Include @updateURL and @downloadURL** pointing to raw GitHub URLs for auto-updates
+- **Use WeakSet/WeakMap** for tracking DOM elements to avoid memory leaks
+- **Avoid aggressive DOM polling** - prefer MutationObserver when possible
+- **Respect page performance** - debounce/throttle expensive operations
+
+#### Naming Convention
+- Files end with `.user.js` (required by userscript managers)
+- Use descriptive snake_case names: `global_short_video_hider.user.js`
 
 ---
 
@@ -414,6 +493,8 @@ Common dependencies used across scripts:
 - **Pillow** (`PIL`) - Image processing (image_stats.py, dupefinder.py)
 - **opencv-python-headless** - Computer vision operations (dupefinder.py)
 - **numpy** - Numerical operations (dupefinder.py, used by opencv)
+- **Flask** - Web server framework (dupefinder V2 web interface)
+- **flask-cors** - CORS support for Flask (dupefinder V2 web interface)
 - **pygetwindow** - Window management (minimize_windows.py)
 - **pywin32** (win32gui, win32con) - Windows API access (minimize_windows.py, mimic_keystrokes.py)
 - **pywebview** - Display web content in native window (ha_dashboard_launcher.py)
@@ -427,6 +508,11 @@ Common dependencies used across scripts:
 
 - **FFmpeg** - Audio/video processing (any2mp3.bat)
 - **tasklist/taskkill** - Process management (clean_ghosts.bat) - built into Windows
+
+### Browser Userscripts
+
+- **Violentmonkey** or **Tampermonkey** - Browser extension to run userscripts
+- No additional dependencies - pure JavaScript
 
 ### Installation Best Practices
 
@@ -481,14 +567,28 @@ python -m pip install package_name
 
 Based on recent git history, key changes include:
 
+### December 2025
+- **Duplicate Image Finder V2** - Complete rewrite with modern Flask-based web interface
+  - Real-time progress streaming with Server-Sent Events (SSE)
+  - Light/dark theme support with accessible focus states
+  - Keyboard navigation and responsive image grid
+  - Heartbeat-based auto-shutdown when browser closes
+  - Undo functionality for file operations
+- **Browser Userscripts** - Added six new Violentmonkey userscripts:
+  - `global_short_video_hider.user.js` - Hide short videos on any website
+  - `page_hopper.user.js` - Navigate paginated sites with keyboard shortcuts
+  - `rectangle_link_selector.user.js` - Select multiple links by drawing rectangles
+  - `reddit_to_libreddit_redirector.user.js` - Privacy-focused Reddit redirect
+  - `universal_image_downloader.user.js` - Download images from any site
+  - `video_management_examplesite.user.js` - Video management utilities
+
+### November 2025
 - **Multiprocessing optimization** - Added parallel processing to folder_stats.py, image_stats.py, and video_stats.py for significant performance improvements on large collections
 - **Enhanced video analysis** - video_stats.py (renamed from video_stats_v2.py) now includes codec detection, HDR/SDR status, framerate analysis, and bitrate metrics
 - **Interactive features** - folder_stats.py now prompts for results count when double-clicked
 - **Improved reporting** - Added color-coded file counts in folder_stats.py, file format breakdown in image_stats.py, and top largest files display
 - **Code quality audit** - Improved error handling, added docstrings, fixed deprecation warnings
 - **Documentation restructuring** - Simplified main README, added detailed subfolder READMEs
-- **Bug fixes** - Fixed missing functions, improved interactive mode
-- **New features** - Added delete_marked.py, enhanced dupefinder HTML reports
 
 ---
 
@@ -612,6 +712,54 @@ for %%F in (*.ext) do (
 echo.
 echo Processed %count% files
 pause
+```
+
+### Starting a New Userscript
+
+```javascript
+// ==UserScript==
+// @name         New Script Name
+// @namespace    new-script
+// @version      1.0
+// @description  [What it does]
+// @match        *://*.example.com/*
+// @run-at       document-idle
+// @grant        none
+// @author       Unmasked213
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/new_script.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/new_script.user.js
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Configuration
+    const CONFIG = {
+        DEBUG: false,
+        // Add settings here
+    };
+
+    // State
+    const state = {};
+
+    // Helper functions
+    function log(...args) {
+        if (CONFIG.DEBUG) console.log('[NewScript]', ...args);
+    }
+
+    // Main initialization
+    function init() {
+        log('Initializing...');
+        // Setup observers, event listeners, etc.
+    }
+
+    // Start when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
 ```
 
 ---
