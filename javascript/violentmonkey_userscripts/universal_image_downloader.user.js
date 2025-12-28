@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Universal Image Downloader
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      7.0
-// @description  Downloads images with Ctrl + double-click. Features perceptual hashing for duplicate detection, verified downloads, intelligent error handling, and optimized performance.
+// @version      7.1
+// @description  Downloads images with Ctrl + double-click or Ctrl + Shift + click (macro-safe). Features perceptual hashing for duplicate detection, verified downloads, intelligent error handling, and optimized performance.
 // @author       Unmasked213
 // @match        *://*/*
 // @run-at       document-start
@@ -97,7 +97,10 @@
         errors: {
             showDetails: true,
             logToConsole: true
-        }
+        },
+
+        // Trigger debounce (prevents double-firing on manual Ctrl+double-click)
+        triggerDebounceMs: 300
     };
 
     // =========================================================================
@@ -1950,34 +1953,64 @@
     // User interaction handling.
     // =========================================================================
 
+    let lastDownloadTime = 0;
+
+    /**
+     * Unified download trigger with debounce protection.
+     * @param {Event} event - Mouse event
+     * @returns {boolean} True if download was triggered
+     */
+    function triggerDownload(event) {
+        const now = Date.now();
+        if (now - lastDownloadTime < Config.triggerDebounceMs) {
+            return false;
+        }
+
+        const imgSrc = ImageFinder.find(event.target);
+        if (!imgSrc) {
+            pillNotification.show('error');
+            Utils.log('No image found at click location');
+            return false;
+        }
+
+        lastDownloadTime = now;
+
+        const queueResult = downloadQueue.add(imgSrc);
+        const stateMap = {
+            'queued': 'success',
+            'already_in_queue': 'info',
+            'duplicate': 'warning'
+        };
+        pillNotification.show(stateMap[queueResult] || 'error');
+
+        return true;
+    }
+
     const EventHandlers = {
         /**
-         * Handle double-click for image download.
+         * Handle Ctrl + double-click for image download.
          * @param {MouseEvent} event
          */
         handleDoubleClick(event) {
-            // Require Ctrl + Double Click
             if (!event.ctrlKey) return;
 
-            const target = event.target;
-            const imgSrc = ImageFinder.find(target);
-
-            if (imgSrc) {
+            if (triggerDownload(event)) {
                 event.preventDefault();
                 event.stopPropagation();
+            }
+        },
 
-                const queueResult = downloadQueue.add(imgSrc);
+        /**
+         * Handle Ctrl + Shift + click for macro-safe image download.
+         * @param {MouseEvent} event
+         */
+        handleMacroClick(event) {
+            if (!event.ctrlKey || !event.shiftKey) return;
+            if (event.detail !== 1) return;
 
-                const stateMap = {
-                    'queued': 'success',
-                    'already_in_queue': 'info',
-                    'duplicate': 'warning'
-                };
-
-                pillNotification.show(stateMap[queueResult] || 'error');
-            } else {
-                pillNotification.show('error');
-                Utils.log('No image found at click location');
+            if (triggerDownload(event)) {
+                event.preventDefault();
+                event.stopPropagation();
             }
         },
 
@@ -2057,7 +2090,11 @@
         pillNotification = new PillNotification();
 
         // Set up event listeners
+        // Primary: Ctrl + Double Click (manual input)
         document.addEventListener('dblclick', EventHandlers.handleDoubleClick, true);
+
+        // Macro fallback: Ctrl + Shift + Click (single click, macro-safe)
+        document.addEventListener('click', EventHandlers.handleMacroClick, true);
 
         mouseTracker.init();
 
@@ -2072,13 +2109,14 @@
             mouseTracker.destroy();
         });
 
-        Utils.log('Universal Image Downloader v7.0 initialized');
+        Utils.log('Universal Image Downloader v7.1 initialized');
+        Utils.log('Triggers: Ctrl+DblClick (manual) or Ctrl+Shift+Click (macro-safe)');
         Utils.log('Config:', Config);
 
         // Show startup notification in debug mode
         if (Config.debug) {
             setTimeout(() => {
-                NotificationManager.show('Image Downloader active (Ctrl+DblClick to download)');
+                NotificationManager.show('Image Downloader active (Ctrl+DblClick or Ctrl+Shift+Click)');
             }, Config.timeouts.initNotification);
         }
     }
