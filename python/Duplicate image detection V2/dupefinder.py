@@ -131,30 +131,30 @@ DEFAULT_CFG = {
     "geometry": {
         "ransac_model_order": ["similarity", "affine", "homography"],
         "duplicate": {
-            "reprojection_px": 2.0,
-            "min_inliers": 60,
-            "coverage": 0.70,
+            "reprojection_px": 2.5,
+            "min_inliers": 40,
+            "coverage": 0.50,
         },
         "variant": {
-            "reprojection_px": 3.0,
-            "min_inliers": 40,
-            "coverage": 0.45,
+            "reprojection_px": 4.0,
+            "min_inliers": 25,
+            "coverage": 0.35,
         },
-        "scale_limits": (0.33, 3.0),
+        "scale_limits": (0.25, 4.0),
     },
     "similarity": {
-        "phash_duplicate": 0.93,
-        "phash_variant": 0.80,
+        "phash_duplicate": 0.90,
+        "phash_variant": 0.75,
         "phash_skip_geometric": 0.97,  # Skip geometric verification if pHash >= this (very high confidence)
         "low_texture_keypoints_min": 120,
-        "low_texture_phash_duplicate": 0.96,
-        "low_texture_phash_variant": 0.88,
+        "low_texture_phash_duplicate": 0.94,
+        "low_texture_phash_variant": 0.82,
     },
     "blocking": {
-        "aspect_ratio_tolerance": 0.05,
+        "aspect_ratio_tolerance": 0.15,
         "size_bucket_megapixels": [0.25, 1, 2, 4, 8, 16, 32],
-        "filesize_order_magnitude": True,
-        "lsh_hamming_radius": 12,
+        "filesize_order_magnitude": False,
+        "lsh_hamming_radius": 16,
     },
     "cache": {
         "path": ".dupefinder_cache.sqlite",
@@ -733,6 +733,46 @@ def phash_similarity_scores(hashes_a: List[int], hashes_b: List[int]) -> Tuple[f
     similarity = 1.0 - (best_dist / 64.0)
     return similarity, best_dist
 
+def compute_composite_similarity(metrics: PairMetrics) -> float:
+    """
+    Compute a composite similarity score that reflects actual image similarity.
+
+    This combines:
+    - pHash similarity (perceptual hash match)
+    - Geometric coverage (proportion of keypoints that matched)
+    - Residual quality (how precise the geometric match is)
+
+    Returns a value between 0.0 and 1.0 where 1.0 means virtually identical.
+    """
+    phash_sim = metrics.phash_similarity
+
+    # If no geometric verification was done, use pHash but cap it
+    if metrics.model == "none" or metrics.inliers == 0:
+        # Cap at 95% since we can't verify geometrically
+        return min(phash_sim, 0.95)
+
+    # Average coverage between both images
+    avg_coverage = (metrics.coverage_a + metrics.coverage_b) / 2.0
+
+    # Residual quality: lower residual = better match
+    # Map residual 0-5px to quality 1.0-0.5
+    residual_quality = max(0.5, 1.0 - (metrics.residual_median_px / 10.0))
+
+    # Composite: weighted combination
+    # - 50% pHash (perceptual similarity)
+    # - 35% coverage (geometric match proportion)
+    # - 15% residual quality (match precision)
+    composite = (0.50 * phash_sim) + (0.35 * avg_coverage) + (0.15 * residual_quality)
+
+    # Scale to 0-100 range but cap at 99% unless truly identical
+    # Only show 100% if pHash is exact AND coverage is very high
+    if phash_sim >= 0.99 and avg_coverage >= 0.90 and metrics.residual_median_px <= 1.0:
+        return 1.0
+
+    # Cap at 99% otherwise - reserve 100% for near-identical
+    return min(composite, 0.99)
+
+
 def decide_label(metrics: PairMetrics, fp_a: Fingerprint, fp_b: Fingerprint, cfg) -> str:
     low_texture_a = fp_a.keypoint_count < cfg["similarity"]["low_texture_keypoints_min"]
     low_texture_b = fp_b.keypoint_count < cfg["similarity"]["low_texture_keypoints_min"]
@@ -819,7 +859,8 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
     for pd in pairs:
         if pd.label == "different":
             continue
-        sim = pd.metrics.phash_similarity
+        # Use composite similarity for more accurate match percentage
+        sim = compute_composite_similarity(pd.metrics)
         adj[pd.a].append((pd.b, sim))
         adj[pd.b].append((pd.a, sim))
     visited: set[Path] = set()
@@ -827,8 +868,10 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
     sim_map: Dict[Tuple[Path, Path], float] = {}
     for pd in pairs:
         if pd.label != "different":
-            sim_map[(pd.a, pd.b)] = pd.metrics.phash_similarity
-            sim_map[(pd.b, pd.a)] = pd.metrics.phash_similarity
+            # Use composite similarity instead of just pHash
+            composite_sim = compute_composite_similarity(pd.metrics)
+            sim_map[(pd.a, pd.b)] = composite_sim
+            sim_map[(pd.b, pd.a)] = composite_sim
     def rep_quality(p: Path) -> Tuple[int, int, int, int]:
         w, h = stats.get(p, (0, 0))
         pix = w * h
@@ -860,10 +903,12 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
         for m in component:
             if m == rep:
                 members.append(m)
-                member_sim[str(m)] = 1.0
+                member_sim[str(m)] = -1.0  # Special marker for representative
                 continue
             sim = sim_map.get((rep, m), 0.0)
-            if sim >= cfg["similarity"]["phash_variant"]:
+            # Use a lower threshold since composite scores are naturally lower than raw pHash
+            # Composite of 0.60 roughly corresponds to pHash of 0.75 (variant threshold)
+            if sim >= 0.55:
                 members.append(m)
                 member_sim[str(m)] = sim
         members_sorted = [rep] + sorted([m for m in members if m != rep], key=rep_quality, reverse=True)
@@ -998,20 +1043,30 @@ def write_html_report(out_dir: Path, clusters: List[Cluster], cfg, detector) -> 
             rep_path = rep_map.get(cluster.id)
             for thumb_path, sim, pth in rows:
                 classes: List[str] = []
-                if rep_path and pth == rep_path:
+                # Check if this is the representative (sim == -1.0 marker or path match)
+                is_rep = (sim < 0) or (rep_path and str(pth) == str(rep_path))
+                if is_rep:
                     classes.append("rep")
                 else:
-                    if sim >= 0.95:
+                    # Adjusted thresholds for composite similarity
+                    # 85%+ = very high confidence duplicate
+                    # 70%+ = high confidence
+                    # below 70% = lower confidence (variant/edited)
+                    if sim >= 0.85:
                         classes.append("sim-high")
-                    elif sim >= 0.85:
+                    elif sim >= 0.70:
                         classes.append("sim-med")
                     else:
                         classes.append("sim-low")
                 f.write("<div class='item'>")
-                pct = int(sim * 100)
                 cls_str = " ".join(classes)
                 f.write(f"<a href='{pth.as_posix()}'><img class='thumb {cls_str}' data-path='{pth.as_posix()}' data-sim='{sim:.4f}' src='thumbnails/{thumb_path.name}' alt='{pth.name}'></a>")
-                f.write(f"<div class='caption'>{pth.name}<br><small>{pct}% match</small></div>")
+                # Show just filename for representative, percentage for others
+                if is_rep:
+                    f.write(f"<div class='caption'>{pth.name}<br><small>REFERENCE</small></div>")
+                else:
+                    pct = int(sim * 100)
+                    f.write(f"<div class='caption'>{pth.name}<br><small>{pct}% similar</small></div>")
                 f.write("</div>")
             f.write("</div>")
             # JavaScript for marking and export

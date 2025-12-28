@@ -304,7 +304,7 @@ def run_scan_thread(session_id: str, folder: Path, quick_mode: bool, threshold: 
                         'width': w,
                         'height': h,
                         'modified': stat.st_mtime,
-                        'similarity': cluster.member_similarities.get(str(member_path), 1.0),
+                        'similarity': None if member_path == cluster.representative else cluster.member_similarities.get(str(member_path), 0.0),
                         'is_representative': member_path == cluster.representative
                     })
                 except Exception:
