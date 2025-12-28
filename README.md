@@ -69,8 +69,8 @@ Select multiple links by drawing a rectangle with right-click drag. Opens all se
 ### [universal_image_downloader.user.js](javascript/violentmonkey_userscripts/universal_image_downloader.user.js)
 Download images from any website with a simple double-click. Prevents duplicates and ensures reliable downloads.
 
-### [reddit_to_libreddit_redirector.user.js](javascript/violentmonkey_userscripts/reddit_to_libreddit_redirector.user.js)
-Automatically redirects Reddit URLs to privacy-friendly Libreddit instances with smart fallback system.
+### [reddit_to_redlib_redirector.user.js](javascript/violentmonkey_userscripts/reddit_to_redlib_redirector.user.js)
+Automatically redirects Reddit URLs to privacy-friendly Redlib instances with hybrid auto-discovery, caching, and smart fallback.
 
 ### [video_management_examplesite.user.js](javascript/violentmonkey_userscripts/video_management_examplesite.user.js)
 Video management utilities for a specific website - play/pause control, jump to midpoint, hide short videos, toggle images. Template for creating site-specific video management scripts.
