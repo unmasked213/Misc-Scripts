@@ -1,15 +1,16 @@
 // ==UserScript==
 // @name         Rectangle Link Selector
-// @namespace    http://tampermonkey.net/
-// @version      1.1
+// @namespace    https://github.com/unmasked213/Misc-Scripts
+// @version      1.2
 // @description  Select multiple links by drawing a rectangle with right-click
 // @author       Unmasked213
 // @match        *://*/*
-// @grant        GM_openInTab
 // @run-at       document-end
-// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/rectangle_link_selector.user.js
-// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/rectangle_link_selector.user.js
+// @grant        GM_openInTab
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/rectangle_link_selector.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/rectangle_link_selector.user.js
 // ==/UserScript==
+
 
 (function() {
     'use strict';
