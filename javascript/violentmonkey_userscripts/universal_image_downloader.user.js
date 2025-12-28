@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Image Downloader
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      6.1
+// @version      6.2
 // @description  Downloads images with Ctrl + double-click, prevents duplicates, ensures working downloads
 // @author       Unmasked213
 // @match        *://*/*
@@ -36,7 +36,7 @@
         maxParallelDownloads: 1,
         autoCloseThreshold: 5,
         showQueueStatus: true,
-        downloadMethod: 'direct', // 'gm', 'fetch', or 'direct'
+        downloadMethod: 'gm', // 'gm' (recommended), 'fetch', or 'direct' (unverified)
 
         deduplication: {
             enabled: true,
@@ -539,7 +539,6 @@
             this.activeDownloads = 0;
             this.isProcessing = false;
             this.startTime = null;
-            this.timeoutIds = [];
         }
 
         add(imgUrl) {
@@ -567,7 +566,8 @@
                 startTime: null,
                 endTime: null,
                 retries: 0,
-                method: 'pending'
+                method: 'pending',
+                timeoutId: null  // Track timeout per-item to prevent duplicate completions
             };
 
             this.queue.push(downloadItem);
@@ -632,7 +632,7 @@
 
         downloadWithGM(item) {
             if (typeof GM_download === 'undefined') {
-                this.downloadDirect(item);
+                this.downloadWithFetch(item);  // Fallback to fetch (verified), not direct (unverified)
                 return;
             }
 
@@ -646,13 +646,15 @@
                     },
                     onerror: (error) => {
                         Utils.log('GM_download failed:', error);
-                        this.downloadDirect(item);
+                        this.clearItemTimeout(item);
+                        this.downloadWithFetch(item);  // Fallback to fetch (verified)
                     }
                 });
                 item.method = 'gm';
             } catch (e) {
                 Utils.log('GM_download error:', e);
-                this.downloadDirect(item);
+                this.clearItemTimeout(item);
+                this.downloadWithFetch(item);  // Fallback to fetch (verified)
             }
         }
 
@@ -667,14 +669,16 @@
                 anchor.click();
                 item.method = 'direct';
 
-                const timeoutId = setTimeout(() => {
-                    this.completeDownload(item, 'complete');
+                // IMPORTANT: Direct downloads cannot verify completion (browser limitation).
+                // We mark as 'initiated' instead of 'complete' to avoid corrupting
+                // the duplicate tracking system with unverified downloads.
+                item.timeoutId = setTimeout(() => {
+                    this.completeDownload(item, 'initiated');
                 }, 3000);
-
-                this.timeoutIds.push(timeoutId);
             } catch (e) {
                 Utils.log('Error in direct download:', e);
                 document.body.removeChild(anchor);
+                this.clearItemTimeout(item);
 
                 if (item.retries < 2) {
                     item.retries++;
@@ -692,6 +696,9 @@
         }
 
         downloadWithFetch(item) {
+            // Clear any pending timeout from a previous method attempt
+            this.clearItemTimeout(item);
+
             const cacheBustUrl = item.url.includes('?')
                 ? `${item.url}&_=${Date.now()}`
                 : `${item.url}?_=${Date.now()}`;
@@ -722,8 +729,10 @@
             })
             .catch(err => {
                 Utils.log('Fetch failed:', err);
+                this.clearItemTimeout(item);
                 if (item.retries < 2) {
                     item.retries++;
+                    // Last resort: try direct, but it won't be marked as verified
                     this.downloadDirect(item);
                 } else {
                     this.completeDownload(item, 'failed');
@@ -732,6 +741,9 @@
         }
 
         saveBlobAsFile(item, blob) {
+            // Clear any pending timeout from direct download attempt
+            this.clearItemTimeout(item);
+
             const objectURL = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = objectURL;
@@ -742,11 +754,11 @@
             try {
                 anchor.click();
 
-                const timeoutId = setTimeout(() => {
+                // Fetch-based blob downloads are verified (we have the data),
+                // so we can confidently mark as complete
+                item.timeoutId = setTimeout(() => {
                     this.completeDownload(item, 'complete');
                 }, 2000);
-
-                this.timeoutIds.push(timeoutId);
             } catch (e) {
                 Utils.log('Error in blob download:', e);
                 this.completeDownload(item, 'failed');
@@ -761,9 +773,13 @@
         }
 
         completeDownload(item, status) {
-            if (item.status === 'complete' || item.status === 'failed') {
+            // Guard against duplicate calls - check all terminal states
+            if (item.status === 'complete' || item.status === 'failed' || item.status === 'initiated') {
                 return;
             }
+
+            // Clear any pending timeout for this item to prevent race conditions
+            this.clearItemTimeout(item);
 
             item.status = status;
             item.endTime = new Date();
@@ -771,30 +787,46 @@
 
             Utils.log(`Download ${status}: ${item.filename} (${this.activeDownloads} active, ${this.queue.length} total)`);
 
+            // Only add to duplicate history for VERIFIED completions
+            // 'initiated' means we sent the request but can't verify it succeeded
             if (status === 'complete') {
                 downloadHistory.add(item.url, item.filename);
             }
 
             if (Config.showNotifications) {
-                NotificationManager.show(`${item.filename} download ${status === 'complete' ? 'complete' : 'failed'}`);
+                const statusMessage = {
+                    'complete': 'complete',
+                    'initiated': 'sent (unverified)',
+                    'failed': 'failed'
+                }[status] || status;
+                NotificationManager.show(`${item.filename} download ${statusMessage}`);
             }
 
             setTimeout(() => this.process(), 100);
+        }
+
+        clearItemTimeout(item) {
+            if (item.timeoutId) {
+                clearTimeout(item.timeoutId);
+                item.timeoutId = null;
+            }
         }
 
         retryFailed() {
             let retryCount = 0;
 
             this.queue.forEach(item => {
-                if (item.status === 'failed') {
+                // Also allow retrying 'initiated' (unverified) downloads
+                if (item.status === 'failed' || item.status === 'initiated') {
                     item.status = 'queued';
                     item.retries = 0;
+                    item.timeoutId = null;
                     retryCount++;
                 }
             });
 
             if (retryCount > 0) {
-                NotificationManager.show(`Retrying ${retryCount} failed downloads`);
+                NotificationManager.show(`Retrying ${retryCount} failed/unverified downloads`);
                 this.process();
             } else {
                 NotificationManager.show('No failed downloads to retry');
@@ -802,8 +834,8 @@
         }
 
         cleanup() {
-            this.timeoutIds.forEach(id => clearTimeout(id));
-            this.timeoutIds = [];
+            // Clear all item-specific timeouts
+            this.queue.forEach(item => this.clearItemTimeout(item));
         }
     }
 
