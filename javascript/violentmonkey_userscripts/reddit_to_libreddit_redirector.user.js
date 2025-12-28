@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         Reddit to Libreddit Redirector
-// @namespace    http://tampermonkey.net/
-// @version      3.0
+// @namespace    https://github.com/unmasked213/Misc-Scripts
+// @version      3.1
 // @description  Automatically redirects Reddit URLs to working Libreddit instances with smart fallback
-// @author       unmasked213
+// @author       Unmasked213
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
-// @grant        GM_xmlhttpRequest
 // @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/reddit_to_libreddit_redirector.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/reddit_to_libreddit_redirector.user.js
 // ==/UserScript==
+
 
 (function() {
     'use strict';
