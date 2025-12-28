@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Universal Image Downloader - Refactored
-// @namespace    http://tampermonkey.net/
-// @version      6.0
+// @name         Universal Image Downloader
+// @namespace    https://github.com/unmasked213/Misc-Scripts
+// @version      6.1
 // @description  Downloads images with double-click, prevents duplicates, ensures working downloads
 // @author       Unmasked213
 // @match        *://*/*
+// @run-at       document-start
 // @grant        GM_download
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -12,10 +13,10 @@
 // @grant        GM_notification
 // @grant        GM_listValues
 // @grant        GM_deleteValue
-// @run-at       document-start
-// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
-// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
 // ==/UserScript==
+
 
 (() => {
     'use strict';

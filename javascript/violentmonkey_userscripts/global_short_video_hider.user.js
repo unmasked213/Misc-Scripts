@@ -1,15 +1,14 @@
 // ==UserScript==
 // @name         Global Short Video Hider
-// @namespace    global-short-video
-// @version      2.2
+// @namespace    https://github.com/unmasked213/Misc-Scripts
+// @version      2.3
 // @description  Hide short videos globally. Protects containers with confirmed long videos from future hide attempts.
+// @author       Unmasked213
 // @match        *://*/*
 // @run-at       document-idle
 // @grant        none
-// @author       Unmasked213
-// @updateURL   https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
-// @downloadURL https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
-
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/global_short_video_hider.user.js
 // ==/UserScript==
 
 (function () {
