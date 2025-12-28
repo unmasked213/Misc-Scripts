@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Video management: examplesite
-// @namespace    http://tampermonkey.net/
-// @version      5.0
+// @namespace    https://github.com/unmasked213/Misc-Scripts
+// @version      5.1
 // @description  Plays and pauses videos on examplesite pages, jumps to midpoint, hides short videos, manages video visibility, and toggles images
-// @author       unmasked213
-// @author       A
+// @author       Unmasked213
 // @include      /^https:\/\/.*examplesit.*\.[^\/]+\/a\/.*$/
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/video_management_examplesite.user.js
+// @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/video_management_examplesite.user.js
 // ==/UserScript==
+
 
 
 (function() {
