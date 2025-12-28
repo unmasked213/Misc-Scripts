@@ -2,7 +2,7 @@
 // @name         Universal Image Downloader
 // @namespace    https://github.com/unmasked213/Misc-Scripts
 // @version      6.1
-// @description  Downloads images with double-click, prevents duplicates, ensures working downloads
+// @description  Downloads images with Ctrl + double-click, prevents duplicates, ensures working downloads
 // @author       Unmasked213
 // @match        *://*/*
 // @run-at       document-start

@@ -27,7 +27,7 @@
         paginationKeywords: [
             'page', 'p', 'pg', 'pagenumber', 'pageno', 'pagenum',
             'seite', 'pagina', 'pagine', 'strona', 'halaman',
-            'sayfa', '????', '????', '???', '???', '??'
+            'sayfa'
         ],
         maxPageNumber: 99999,
         debugMode: false,
