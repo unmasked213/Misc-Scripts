@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Universal Image Downloader
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      6.2
-// @description  Downloads images with Ctrl + double-click, prevents duplicates, ensures working downloads
+// @version      7.0
+// @description  Downloads images with Ctrl + double-click. Features perceptual hashing for duplicate detection, verified downloads, intelligent error handling, and optimized performance.
 // @author       Unmasked213
 // @match        *://*/*
 // @run-at       document-start
@@ -17,54 +17,206 @@
 // @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/universal_image_downloader.user.js
 // ==/UserScript==
 
-
 (() => {
     'use strict';
 
-    // ===== Configuration Module =====
+    // =========================================================================
+    // CONFIGURATION
+    // All magic numbers and user-configurable options centralized here.
+    // =========================================================================
+
     const Config = {
-        debug: true,
+        // Core behavior
+        debug: false,
         closeTabAfterDownload: false,
         useTimestampInFilename: true,
-        trackMousePosition: true,
-        addDebugHotkey: true,
-        lookForHiddenImages: true,
-        handleBackgroundImages: true,
-        fixContentType: true,
         useOriginalFilename: false,
         showNotifications: false,
+        
+        // Download settings
+        downloadMethod: 'gm',  // 'gm' (recommended), 'fetch', or 'direct' (unverified)
         maxParallelDownloads: 1,
         autoCloseThreshold: 5,
         showQueueStatus: true,
-        downloadMethod: 'gm', // 'gm' (recommended), 'fetch', or 'direct' (unverified)
+        fixContentType: true,
 
+        // Timeouts (milliseconds)
+        timeouts: {
+            directDownload: 3000,      // Wait before marking direct download as initiated
+            blobSave: 2000,            // Wait for browser save dialog
+            fetchRequest: 30000,       // Network request timeout
+            gmDownload: 60000,         // GM_download timeout
+            anchorCleanup: 1000,       // DOM cleanup delay
+            notificationFade: 2000,    // Notification display duration
+            pillFade: 3000,            // Pill auto-fade delay
+            processQueue: 100,         // Queue processing interval
+            initNotification: 1000     // Startup notification delay
+        },
+
+        // Retry settings
+        retry: {
+            maxAttempts: 2,
+            delayMs: 500
+        },
+
+        // Image detection
+        detection: {
+            trackMousePosition: true,
+            mouseTrackDebounceMs: 16,  // ~60fps
+            addDebugHotkey: true,
+            lookForHiddenImages: true,
+            handleBackgroundImages: true,
+            minImageDimension: 50,     // Minimum px to consider as real image
+            parentTraversalDepth: 5,   // Max levels to search for images
+            visibilityCache: {
+                enabled: true,
+                maxSize: 500,
+                ttlMs: 1000
+            }
+        },
+
+        // Deduplication
         deduplication: {
             enabled: true,
             storageKeyPrefix: 'img_dl_',
-            hashAlgorithm: 'url',
             timeframeDays: 30,
             notifyOnDuplicate: true,
             skipDuplicates: true,
             ignoreQueryParams: true,
-            clearCacheHotkey: true
+            clearCacheHotkey: true,
+            // Perceptual hashing for content-based deduplication
+            perceptualHash: {
+                enabled: true,
+                hashSize: 8,           // 8x8 = 64-bit hash
+                sampleSize: 32,        // Downscale to 32x32 before hashing
+                hammingThreshold: 5    // Max bit difference to consider duplicate
+            }
+        },
+
+        // Error classification
+        errors: {
+            showDetails: true,
+            logToConsole: true
         }
     };
 
-    // ===== Utility Functions =====
+    // =========================================================================
+    // ERROR TYPES
+    // Structured error handling with categorization.
+    // =========================================================================
+
+    /**
+     * Custom error class for download failures with categorization.
+     */
+    class DownloadError extends Error {
+        /**
+         * @param {string} message - Human-readable error message
+         * @param {string} category - Error category: 'network', 'cors', 'http', 'timeout', 'filesystem', 'unknown'
+         * @param {number|null} httpStatus - HTTP status code if applicable
+         * @param {Error|null} cause - Original error that caused this
+         */
+        constructor(message, category, httpStatus = null, cause = null) {
+            super(message);
+            this.name = 'DownloadError';
+            this.category = category;
+            this.httpStatus = httpStatus;
+            this.cause = cause;
+            this.timestamp = Date.now();
+        }
+
+        /**
+         * Create error from fetch Response object.
+         * @param {Response} response - Fetch Response
+         * @returns {DownloadError}
+         */
+        static fromResponse(response) {
+            const category = response.status === 0 ? 'cors' : 'http';
+            const message = `HTTP ${response.status}: ${response.statusText || 'Request failed'}`;
+            return new DownloadError(message, category, response.status);
+        }
+
+        /**
+         * Create error from caught exception.
+         * @param {Error} error - Original error
+         * @returns {DownloadError}
+         */
+        static fromException(error) {
+            const message = error.message || 'Unknown error';
+            let category = 'unknown';
+
+            if (message.includes('NetworkError') || message.includes('Failed to fetch')) {
+                category = 'network';
+            } else if (message.includes('CORS') || message.includes('cross-origin')) {
+                category = 'cors';
+            } else if (message.includes('timeout') || message.includes('Timeout')) {
+                category = 'timeout';
+            } else if (message.includes('abort') || message.includes('Abort')) {
+                category = 'aborted';
+            }
+
+            return new DownloadError(message, category, null, error);
+        }
+
+        /**
+         * Get user-friendly error message.
+         * @returns {string}
+         */
+        toUserMessage() {
+            const messages = {
+                'cors': 'Blocked by website security (CORS)',
+                'network': 'Network connection failed',
+                'timeout': 'Request timed out',
+                'http': `Server error (${this.httpStatus})`,
+                'filesystem': 'Could not save file',
+                'aborted': 'Download cancelled',
+                'unknown': 'Download failed'
+            };
+            return messages[this.category] || messages.unknown;
+        }
+    }
+
+    // =========================================================================
+    // UTILITIES
+    // Pure functions with no side effects.
+    // =========================================================================
+
     const Utils = {
+        /**
+         * Log message to console if debug mode enabled.
+         * @param {...any} args - Arguments to log
+         */
         log(...args) {
             if (Config.debug) {
                 console.log('[ImageDownloader]', ...args);
             }
         },
 
+        /**
+         * Log error with optional details.
+         * @param {string} context - Where the error occurred
+         * @param {Error|DownloadError} error - The error object
+         */
+        logError(context, error) {
+            if (Config.errors.logToConsole) {
+                console.error(`[ImageDownloader] ${context}:`, error);
+                if (error.cause) {
+                    console.error('[ImageDownloader] Caused by:', error.cause);
+                }
+            }
+        },
+
+        /**
+         * Normalize URL for comparison by removing query params if configured.
+         * @param {string} url - URL to normalize
+         * @returns {string} Normalized URL
+         */
         normalizeUrl(url) {
             if (!url) return '';
 
             if (Config.deduplication.ignoreQueryParams) {
                 try {
-                    const parsedUrl = new URL(url);
-                    return parsedUrl.origin + parsedUrl.pathname;
+                    const parsed = new URL(url);
+                    return parsed.origin + parsed.pathname;
                 } catch {
                     return url;
                 }
@@ -72,21 +224,20 @@
             return url;
         },
 
+        /**
+         * Create storage-safe key from URL.
+         * @param {string} url - URL to hash
+         * @returns {string} Safe key string
+         */
         hashUrl(url) {
             return url.replace(/[^a-z0-9]/gi, '_').toLowerCase();
         },
 
-        isElementVisible(element) {
-            if (!element) return false;
-
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' &&
-                   style.visibility !== 'hidden' &&
-                   style.opacity !== '0' &&
-                   element.offsetWidth > 0 &&
-                   element.offsetHeight > 0;
-        },
-
+        /**
+         * Detect MIME type from file signature bytes.
+         * @param {Uint8Array} bytes - First bytes of file
+         * @returns {string} MIME type
+         */
         detectMimeType(bytes) {
             const signatures = [
                 { bytes: [0xFF, 0xD8], mime: 'image/jpeg' },
@@ -94,7 +245,9 @@
                 { bytes: [0x47, 0x49, 0x46, 0x38], mime: 'image/gif' },
                 { bytes: [0x52, 0x49, 0x46, 0x46], offset: 8, match: [0x57, 0x45, 0x42, 0x50], mime: 'image/webp' },
                 { bytes: [0x3C, 0x3F, 0x78, 0x6D, 0x6C], mime: 'image/svg+xml' },
-                { bytes: [0x3C, 0x73, 0x76, 0x67], mime: 'image/svg+xml' }
+                { bytes: [0x3C, 0x73, 0x76, 0x67], mime: 'image/svg+xml' },
+                { bytes: [0x00, 0x00, 0x00], offset: 4, match: [0x66, 0x74, 0x79, 0x70], mime: 'image/avif' },
+                { bytes: [0x42, 0x4D], mime: 'image/bmp' }
             ];
 
             for (const sig of signatures) {
@@ -112,13 +265,21 @@
             return 'image/jpeg';
         },
 
+        /**
+         * Update filename extension based on MIME type.
+         * @param {string} filename - Original filename
+         * @param {string} mimeType - Detected MIME type
+         * @returns {string} Filename with correct extension
+         */
         updateExtension(filename, mimeType) {
             const extensionMap = {
                 'image/jpeg': '.jpg',
                 'image/png': '.png',
                 'image/gif': '.gif',
                 'image/webp': '.webp',
-                'image/svg+xml': '.svg'
+                'image/svg+xml': '.svg',
+                'image/avif': '.avif',
+                'image/bmp': '.bmp'
             };
 
             const extension = extensionMap[mimeType] || '.jpg';
@@ -126,6 +287,11 @@
             return baseName + extension;
         },
 
+        /**
+         * Generate filename from URL with optional timestamp.
+         * @param {string} imgUrl - Image URL
+         * @returns {string} Generated filename
+         */
         createFilename(imgUrl) {
             let filename = '';
 
@@ -140,8 +306,8 @@
             filename = filename.replace(/[/\\?%*:|"<>]/g, '_');
 
             if (!filename.includes('.')) {
-                const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
-                const foundExt = extensions.find(ext => imgUrl.includes(ext));
+                const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif'];
+                const foundExt = extensions.find(ext => imgUrl.toLowerCase().includes(ext));
                 filename += foundExt || '.jpg';
             }
 
@@ -164,52 +330,333 @@
             }
 
             return filename;
+        },
+
+        /**
+         * Create debounced version of function.
+         * @param {Function} fn - Function to debounce
+         * @param {number} delay - Delay in milliseconds
+         * @returns {Function} Debounced function
+         */
+        debounce(fn, delay) {
+            let timeoutId = null;
+            return function(...args) {
+                if (timeoutId) clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => fn.apply(this, args), delay);
+            };
         }
     };
 
-    // ===== Download History Module =====
+    // =========================================================================
+    // PERCEPTUAL HASH
+    // Content-based image fingerprinting for duplicate detection.
+    // =========================================================================
+
+    /**
+     * Perceptual hash generator using average hash algorithm.
+     * Creates fingerprints that survive resizing, compression, and minor edits.
+     */
+    class PerceptualHash {
+        /**
+         * Generate perceptual hash from image data.
+         * @param {Blob} blob - Image blob
+         * @returns {Promise<string|null>} 64-bit hash as hex string, or null on failure
+         */
+        static async generate(blob) {
+            if (!Config.deduplication.perceptualHash.enabled) {
+                return null;
+            }
+
+            try {
+                const imageBitmap = await createImageBitmap(blob);
+                const { hashSize, sampleSize } = Config.deduplication.perceptualHash;
+
+                // Create canvas for processing
+                const canvas = new OffscreenCanvas(sampleSize, sampleSize);
+                const ctx = canvas.getContext('2d');
+
+                // Draw and downscale image
+                ctx.drawImage(imageBitmap, 0, 0, sampleSize, sampleSize);
+                imageBitmap.close();
+
+                // Get grayscale pixel data
+                const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+                const pixels = imageData.data;
+                const grayscale = [];
+
+                for (let i = 0; i < pixels.length; i += 4) {
+                    // Standard grayscale conversion
+                    const gray = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+                    grayscale.push(gray);
+                }
+
+                // Further downscale to hash size using block averaging
+                const blockSize = sampleSize / hashSize;
+                const hashPixels = [];
+
+                for (let y = 0; y < hashSize; y++) {
+                    for (let x = 0; x < hashSize; x++) {
+                        let sum = 0;
+                        let count = 0;
+                        for (let by = 0; by < blockSize; by++) {
+                            for (let bx = 0; bx < blockSize; bx++) {
+                                const idx = (y * blockSize + by) * sampleSize + (x * blockSize + bx);
+                                sum += grayscale[idx];
+                                count++;
+                            }
+                        }
+                        hashPixels.push(sum / count);
+                    }
+                }
+
+                // Calculate average
+                const average = hashPixels.reduce((a, b) => a + b, 0) / hashPixels.length;
+
+                // Generate hash: 1 if pixel > average, 0 otherwise
+                let hash = '';
+                for (const pixel of hashPixels) {
+                    hash += pixel > average ? '1' : '0';
+                }
+
+                // Convert binary string to hex
+                const hexHash = BigInt('0b' + hash).toString(16).padStart(hashSize * hashSize / 4, '0');
+
+                Utils.log('Generated perceptual hash:', hexHash);
+                return hexHash;
+
+            } catch (error) {
+                Utils.logError('Perceptual hash generation', error);
+                return null;
+            }
+        }
+
+        /**
+         * Calculate Hamming distance between two hashes.
+         * @param {string} hash1 - First hash (hex)
+         * @param {string} hash2 - Second hash (hex)
+         * @returns {number} Number of differing bits
+         */
+        static hammingDistance(hash1, hash2) {
+            if (!hash1 || !hash2 || hash1.length !== hash2.length) {
+                return Infinity;
+            }
+
+            try {
+                const bin1 = BigInt('0x' + hash1);
+                const bin2 = BigInt('0x' + hash2);
+                const xor = bin1 ^ bin2;
+
+                // Count set bits
+                let distance = 0;
+                let val = xor;
+                while (val > 0n) {
+                    distance += Number(val & 1n);
+                    val >>= 1n;
+                }
+                return distance;
+            } catch {
+                return Infinity;
+            }
+        }
+
+        /**
+         * Check if two hashes represent similar images.
+         * @param {string} hash1 - First hash
+         * @param {string} hash2 - Second hash
+         * @returns {boolean} True if images are perceptually similar
+         */
+        static isSimilar(hash1, hash2) {
+            const distance = this.hammingDistance(hash1, hash2);
+            return distance <= Config.deduplication.perceptualHash.hammingThreshold;
+        }
+    }
+
+    // =========================================================================
+    // VISIBILITY OBSERVER
+    // Efficient element visibility checking using IntersectionObserver.
+    // =========================================================================
+
+    /**
+     * Caches element visibility using IntersectionObserver for performance.
+     */
+    class VisibilityObserver {
+        constructor() {
+            /** @type {Map<Element, boolean>} */
+            this.visibilityCache = new Map();
+            /** @type {Map<Element, number>} */
+            this.cacheTimestamps = new Map();
+            /** @type {Set<Element>} */
+            this.pendingElements = new Set();
+
+            this.observer = new IntersectionObserver(
+                (entries) => this.handleIntersection(entries),
+                { threshold: 0.01 }
+            );
+        }
+
+        /**
+         * Handle intersection observer callback.
+         * @param {IntersectionObserverEntry[]} entries
+         */
+        handleIntersection(entries) {
+            const now = Date.now();
+            for (const entry of entries) {
+                this.visibilityCache.set(entry.target, entry.isIntersecting);
+                this.cacheTimestamps.set(entry.target, now);
+                this.pendingElements.delete(entry.target);
+            }
+        }
+
+        /**
+         * Check if element is visible, using cache when available.
+         * @param {Element} element - Element to check
+         * @returns {boolean} Visibility status
+         */
+        isVisible(element) {
+            if (!element) return false;
+
+            // Check cache validity
+            if (Config.detection.visibilityCache.enabled) {
+                const cached = this.visibilityCache.get(element);
+                const timestamp = this.cacheTimestamps.get(element);
+
+                if (cached !== undefined && timestamp) {
+                    const age = Date.now() - timestamp;
+                    if (age < Config.detection.visibilityCache.ttlMs) {
+                        return cached;
+                    }
+                }
+
+                // Limit cache size
+                if (this.visibilityCache.size > Config.detection.visibilityCache.maxSize) {
+                    this.pruneCache();
+                }
+            }
+
+            // Start observing if not already
+            if (!this.pendingElements.has(element)) {
+                this.pendingElements.add(element);
+                this.observer.observe(element);
+            }
+
+            // Fallback to synchronous check for immediate result
+            return this.checkVisibilitySync(element);
+        }
+
+        /**
+         * Synchronous visibility check fallback.
+         * @param {Element} element
+         * @returns {boolean}
+         */
+        checkVisibilitySync(element) {
+            if (!element) return false;
+
+            const style = getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return false;
+            }
+
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        }
+
+        /**
+         * Remove oldest entries from cache.
+         */
+        pruneCache() {
+            const entries = Array.from(this.cacheTimestamps.entries());
+            entries.sort((a, b) => a[1] - b[1]);
+
+            const toRemove = entries.slice(0, Math.floor(entries.length / 2));
+            for (const [element] of toRemove) {
+                this.visibilityCache.delete(element);
+                this.cacheTimestamps.delete(element);
+                this.observer.unobserve(element);
+            }
+        }
+
+        /**
+         * Clean up observer.
+         */
+        destroy() {
+            this.observer.disconnect();
+            this.visibilityCache.clear();
+            this.cacheTimestamps.clear();
+            this.pendingElements.clear();
+        }
+    }
+
+    // =========================================================================
+    // DOWNLOAD HISTORY
+    // Persistent storage for duplicate tracking with URL and perceptual hash.
+    // =========================================================================
+
+    /**
+     * Manages download history with URL-based and perceptual hash deduplication.
+     */
     class DownloadHistory {
         constructor() {
-            this.history = new Map();
+            /** @type {Map<string, Object>} URL hash -> entry data */
+            this.urlHistory = new Map();
+            /** @type {Map<string, Object>} Perceptual hash -> entry data */
+            this.perceptualHistory = new Map();
             this.load();
         }
 
+        /**
+         * Load history from persistent storage.
+         */
         load() {
             if (!Config.deduplication.enabled) return;
 
             try {
-                if (typeof GM_listValues !== 'undefined' && typeof GM_getValue !== 'undefined') {
-                    const keys = GM_listValues();
-                    const prefix = Config.deduplication.storageKeyPrefix;
-
-                    keys.filter(key => key.startsWith(prefix))
-                        .forEach(key => {
-                            const value = GM_getValue(key);
-                            if (value) {
-                                try {
-                                    const data = JSON.parse(value);
-                                    this.history.set(key.substring(prefix.length), data);
-                                } catch {}
-                            }
-                        });
-
-                    this.cleanup();
-                    Utils.log(`Loaded ${this.history.size} items in download history`);
+                if (typeof GM_listValues === 'undefined' || typeof GM_getValue === 'undefined') {
+                    return;
                 }
-            } catch (e) {
-                Utils.log('Error loading download history:', e);
+
+                const keys = GM_listValues();
+                const prefix = Config.deduplication.storageKeyPrefix;
+
+                keys.filter(key => key.startsWith(prefix))
+                    .forEach(key => {
+                        const value = GM_getValue(key);
+                        if (value) {
+                            try {
+                                const data = JSON.parse(value);
+                                const urlKey = key.substring(prefix.length);
+                                this.urlHistory.set(urlKey, data);
+
+                                // Also index by perceptual hash if available
+                                if (data.perceptualHash) {
+                                    this.perceptualHistory.set(data.perceptualHash, data);
+                                }
+                            } catch { /* Ignore corrupt entries */ }
+                        }
+                    });
+
+                this.cleanup();
+                Utils.log(`Loaded ${this.urlHistory.size} items in download history`);
+
+            } catch (error) {
+                Utils.logError('Loading download history', error);
             }
         }
 
+        /**
+         * Remove expired entries.
+         */
         cleanup() {
-            if (this.history.size === 0) return;
+            if (this.urlHistory.size === 0) return;
 
             const cutoffTime = Date.now() - (Config.deduplication.timeframeDays * 24 * 60 * 60 * 1000);
             let deleted = 0;
 
-            for (const [key, data] of this.history.entries()) {
+            for (const [key, data] of this.urlHistory.entries()) {
                 if (data.timestamp < cutoffTime) {
-                    this.history.delete(key);
+                    this.urlHistory.delete(key);
+                    if (data.perceptualHash) {
+                        this.perceptualHistory.delete(data.perceptualHash);
+                    }
                     if (typeof GM_deleteValue !== 'undefined') {
                         GM_deleteValue(Config.deduplication.storageKeyPrefix + key);
                     }
@@ -222,9 +669,13 @@
             }
         }
 
+        /**
+         * Clear all history.
+         */
         clear() {
             try {
-                this.history.clear();
+                this.urlHistory.clear();
+                this.perceptualHistory.clear();
 
                 if (typeof GM_listValues !== 'undefined' && typeof GM_deleteValue !== 'undefined') {
                     const keys = GM_listValues();
@@ -243,29 +694,85 @@
                 if (Config.showNotifications) {
                     NotificationManager.show('Download history cleared');
                 }
-            } catch (e) {
-                Utils.log('Error clearing download history:', e);
+            } catch (error) {
+                Utils.logError('Clearing download history', error);
             }
         }
 
-        isDuplicate(url) {
+        /**
+         * Check if URL is duplicate.
+         * @param {string} url - URL to check
+         * @returns {boolean}
+         */
+        isDuplicateUrl(url) {
             if (!Config.deduplication.enabled || !url) return false;
 
             const normalizedUrl = Utils.normalizeUrl(url);
             const urlKey = Utils.hashUrl(normalizedUrl);
-            const isInHistory = this.history.has(urlKey);
-
-            if (isInHistory && Config.deduplication.notifyOnDuplicate) {
-                const data = this.history.get(urlKey);
-                const date = new Date(data.timestamp);
-                const dateStr = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-                NotificationManager.show(`Duplicate image (downloaded on ${dateStr})`);
-            }
-
-            return isInHistory;
+            return this.urlHistory.has(urlKey);
         }
 
-        add(url, filename) {
+        /**
+         * Check if perceptual hash is duplicate.
+         * @param {string} pHash - Perceptual hash to check
+         * @returns {Object|null} Matching entry or null
+         */
+        findPerceptualDuplicate(pHash) {
+            if (!Config.deduplication.perceptualHash.enabled || !pHash) {
+                return null;
+            }
+
+            // Exact match
+            if (this.perceptualHistory.has(pHash)) {
+                return this.perceptualHistory.get(pHash);
+            }
+
+            // Similar match within threshold
+            for (const [hash, data] of this.perceptualHistory.entries()) {
+                if (PerceptualHash.isSimilar(pHash, hash)) {
+                    return data;
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * Check if image is duplicate by URL or content.
+         * @param {string} url - Image URL
+         * @param {string|null} perceptualHash - Optional perceptual hash
+         * @returns {{isDuplicate: boolean, reason: string|null, previousEntry: Object|null}}
+         */
+        checkDuplicate(url, perceptualHash = null) {
+            if (!Config.deduplication.enabled) {
+                return { isDuplicate: false, reason: null, previousEntry: null };
+            }
+
+            // Check URL first (fast)
+            if (this.isDuplicateUrl(url)) {
+                const urlKey = Utils.hashUrl(Utils.normalizeUrl(url));
+                const entry = this.urlHistory.get(urlKey);
+                return { isDuplicate: true, reason: 'url', previousEntry: entry };
+            }
+
+            // Check perceptual hash (catches renamed/resized duplicates)
+            if (perceptualHash) {
+                const entry = this.findPerceptualDuplicate(perceptualHash);
+                if (entry) {
+                    return { isDuplicate: true, reason: 'content', previousEntry: entry };
+                }
+            }
+
+            return { isDuplicate: false, reason: null, previousEntry: null };
+        }
+
+        /**
+         * Add entry to history.
+         * @param {string} url - Image URL
+         * @param {string} filename - Saved filename
+         * @param {string|null} perceptualHash - Optional perceptual hash
+         */
+        add(url, filename, perceptualHash = null) {
             if (!Config.deduplication.enabled || !url) return;
 
             const normalizedUrl = Utils.normalizeUrl(url);
@@ -274,25 +781,52 @@
             const entry = {
                 originalUrl: url,
                 filename: filename,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                perceptualHash: perceptualHash
             };
 
-            this.history.set(urlKey, entry);
+            this.urlHistory.set(urlKey, entry);
+
+            if (perceptualHash) {
+                this.perceptualHistory.set(perceptualHash, entry);
+            }
 
             if (typeof GM_setValue !== 'undefined') {
                 try {
                     GM_setValue(Config.deduplication.storageKeyPrefix + urlKey, JSON.stringify(entry));
-                } catch (e) {
-                    Utils.log('Error saving to GM storage:', e);
+                } catch (error) {
+                    Utils.logError('Saving to GM storage', error);
                 }
             }
         }
     }
 
-    // ===== Image Finder Module =====
+    // =========================================================================
+    // IMAGE FINDER
+    // Intelligent image source detection with caching.
+    // =========================================================================
+
+    /**
+     * Finds the best image source from a clicked element and its context.
+     */
     class ImageFinder {
+        /** @type {Map<Element, {url: string, timestamp: number}>} */
+        static cache = new Map();
+        static CACHE_TTL = 500;
+
+        /**
+         * Find best image URL from element context.
+         * @param {Element} element - Clicked element
+         * @returns {string|null} Best image URL or null
+         */
         static find(element) {
             if (!element) return null;
+
+            // Check cache
+            const cached = this.cache.get(element);
+            if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+                return cached.url;
+            }
 
             Utils.log('Searching for image source from element:', element);
 
@@ -312,42 +846,76 @@
 
             if (Config.debug && uniqueSources.length > 0) {
                 Utils.log('Potential image sources (in priority order):');
-                uniqueSources.forEach((source, index) => {
-                    const truncated = source.url.substring(0, 100);
-                    Utils.log(`${index + 1}. Priority ${source.priority}: ${truncated}${source.url.length > 100 ? '...' : ''}`);
+                uniqueSources.slice(0, 5).forEach((source, index) => {
+                    const truncated = source.url.substring(0, 80);
+                    Utils.log(`${index + 1}. Priority ${source.priority}: ${truncated}...`);
                 });
             }
 
-            return uniqueSources.length > 0 ? uniqueSources[0].url : null;
+            const result = uniqueSources.length > 0 ? uniqueSources[0].url : null;
+
+            // Cache result
+            this.cache.set(element, { url: result, timestamp: Date.now() });
+
+            // Prune cache if too large
+            if (this.cache.size > 100) {
+                const entries = Array.from(this.cache.entries());
+                entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+                entries.slice(0, 50).forEach(([key]) => this.cache.delete(key));
+            }
+
+            return result;
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromImgElement(element) {
-            if (element.tagName.toLowerCase() !== 'img') return [];
-            return [{ url: this.getBestImageVersion(element), priority: 100 }];
+            if (element.tagName?.toLowerCase() !== 'img') return [];
+            const url = this.getBestImageVersion(element);
+            return url ? [{ url, priority: 100 }] : [];
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromContainedImages(element) {
-            const images = element.querySelectorAll('img');
+            const images = element.querySelectorAll?.('img') || [];
             return Array.from(images)
-                .filter(img => Utils.isElementVisible(img))
-                .map(img => ({ url: this.getBestImageVersion(img), priority: 90 }));
+                .filter(img => visibilityObserver.isVisible(img))
+                .map(img => ({ url: this.getBestImageVersion(img), priority: 90 }))
+                .filter(item => item.url);
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromLinks(element) {
-            if (element.tagName.toLowerCase() !== 'a') return [];
+            if (element.tagName?.toLowerCase() !== 'a') return [];
             const href = element.href;
-            if (href && /\.(jpe?g|png|gif|webp|svg)(\?.*)?$/i.test(href)) {
+            if (href && /\.(jpe?g|png|gif|webp|svg|avif)(\?.*)?$/i.test(href)) {
                 return [{ url: href, priority: 85 }];
             }
             return [];
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromBackgroundImage(element) {
-            if (!Config.handleBackgroundImages) return [];
+            if (!Config.detection.handleBackgroundImages) return [];
             const bgImage = this.getBackgroundImage(element);
             return bgImage ? [{ url: bgImage, priority: 80 }] : [];
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromDataAttributes(element) {
             const dataUrlAttributes = [
                 'data-src', 'data-original', 'data-orig-file', 'data-large-file',
@@ -357,22 +925,27 @@
 
             return dataUrlAttributes
                 .map(attr => {
-                    const val = element.getAttribute(attr);
+                    const val = element.getAttribute?.(attr);
                     if (val?.trim() && (val.startsWith('http') || val.startsWith('/'))) {
-                        return { url: val, priority: 75 };
+                        return { url: this.ensureAbsoluteUrl(val), priority: 75 };
                     }
                     return null;
                 })
                 .filter(Boolean);
         }
 
+        /**
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromGalleries() {
             const gallerySelectors = [
                 '.pswp__item:not([aria-hidden="true"]) img',
                 '.pswp__zoom-wrap img',
                 '.pswp__img',
                 '.lg-current img',
-                '.lg-img-wrap img'
+                '.lg-img-wrap img',
+                '.fancybox-image',
+                '.mfp-img'
             ];
 
             return gallerySelectors
@@ -380,33 +953,34 @@
                     const img = document.querySelector(selector);
                     return img ? { url: this.getBestImageVersion(img), priority: 95 } : null;
                 })
-                .filter(Boolean);
+                .filter(item => item?.url);
         }
 
+        /**
+         * @param {Element} element
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromParentElements(element) {
             const sources = [];
             let currentElem = element;
-            const maxLevels = 5;
+            const maxLevels = Config.detection.parentTraversalDepth;
             let level = 0;
 
             while (currentElem && currentElem !== document.body && level < maxLevels) {
-                const imgs = currentElem.querySelectorAll('img');
-                imgs.forEach(img => {
-                    if (Utils.isElementVisible(img)) {
-                        sources.push({
-                            url: this.getBestImageVersion(img),
-                            priority: 70 - level * 5
-                        });
+                const imgs = currentElem.querySelectorAll?.('img') || [];
+                for (const img of imgs) {
+                    if (visibilityObserver.isVisible(img)) {
+                        const url = this.getBestImageVersion(img);
+                        if (url) {
+                            sources.push({ url, priority: 70 - level * 5 });
+                        }
                     }
-                });
+                }
 
-                if (Config.handleBackgroundImages) {
+                if (Config.detection.handleBackgroundImages) {
                     const bgImage = this.getBackgroundImage(currentElem);
                     if (bgImage) {
-                        sources.push({
-                            url: bgImage,
-                            priority: 65 - level * 5
-                        });
+                        sources.push({ url: bgImage, priority: 65 - level * 5 });
                     }
                 }
 
@@ -417,41 +991,62 @@
             return sources;
         }
 
+        /**
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static fromNearbyImages() {
-            if (!Config.lookForHiddenImages || !MouseTracker.x || !MouseTracker.y) return [];
+            if (!Config.detection.lookForHiddenImages || !mouseTracker.x || !mouseTracker.y) {
+                return [];
+            }
 
-            const nearbyImg = this.findNearestVisibleImage(MouseTracker.x, MouseTracker.y);
-            return nearbyImg ? [{ url: this.getBestImageVersion(nearbyImg), priority: 60 }] : [];
+            const nearbyImg = this.findNearestVisibleImage(mouseTracker.x, mouseTracker.y);
+            if (nearbyImg) {
+                const url = this.getBestImageVersion(nearbyImg);
+                return url ? [{ url, priority: 60 }] : [];
+            }
+            return [];
         }
 
+        /**
+         * Get highest quality version of an image.
+         * @param {HTMLImageElement} imgElement
+         * @returns {string|null}
+         */
         static getBestImageVersion(imgElement) {
             if (!imgElement?.src) return null;
 
             let bestSrc = imgElement.src;
+            let bestWidth = imgElement.naturalWidth || 0;
 
             // Check srcset for highest resolution
             if (imgElement.srcset) {
                 const srcsetItems = imgElement.srcset.split(',');
-                let highestWidth = 0;
 
-                srcsetItems.forEach(item => {
-                    const parts = item.trim().split(' ');
+                for (const item of srcsetItems) {
+                    const parts = item.trim().split(/\s+/);
                     if (parts.length >= 2) {
                         const itemUrl = parts[0];
-                        const widthStr = parts[parts.length - 1];
+                        const descriptor = parts[parts.length - 1];
 
-                        if (widthStr?.includes('w')) {
-                            const width = parseInt(widthStr.replace('w', ''));
-                            if (width > highestWidth) {
-                                highestWidth = width;
+                        if (descriptor.endsWith('w')) {
+                            const width = parseInt(descriptor);
+                            if (width > bestWidth) {
+                                bestWidth = width;
+                                bestSrc = itemUrl;
+                            }
+                        } else if (descriptor.endsWith('x')) {
+                            const density = parseFloat(descriptor);
+                            const effectiveWidth = (imgElement.naturalWidth || 100) * density;
+                            if (effectiveWidth > bestWidth) {
+                                bestWidth = effectiveWidth;
                                 bestSrc = itemUrl;
                             }
                         }
                     }
-                });
+                }
             }
 
-            // Check high-quality attributes
+            // Check high-quality data attributes
             const highQualityAttrs = [
                 'data-src', 'data-original', 'data-orig-file', 'data-large-file',
                 'data-full-src', 'data-zoom-src', 'data-large', 'data-1000px'
@@ -465,82 +1060,145 @@
                 }
             }
 
-            // Check parent link
+            // Check parent link for full-size version
             const parentLink = imgElement.closest('a');
-            if (parentLink?.href && /\.(jpe?g|png|gif|webp|svg)(\?.*)?$/i.test(parentLink.href)) {
+            if (parentLink?.href && /\.(jpe?g|png|gif|webp|svg|avif)(\?.*)?$/i.test(parentLink.href)) {
                 bestSrc = parentLink.href;
             }
 
-            // Ensure absolute URL
-            if (bestSrc.startsWith('/')) {
-                bestSrc = window.location.origin + bestSrc;
-            }
-
-            return bestSrc;
+            return this.ensureAbsoluteUrl(bestSrc);
         }
 
+        /**
+         * Extract background image URL from element.
+         * @param {Element} element
+         * @returns {string|null}
+         */
         static getBackgroundImage(element) {
             if (!element) return null;
 
-            const style = window.getComputedStyle(element);
-            if (style.backgroundImage && style.backgroundImage !== 'none') {
-                const match = style.backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
-                if (match?.[1]) {
-                    return match[1];
+            try {
+                const style = getComputedStyle(element);
+                if (style.backgroundImage && style.backgroundImage !== 'none') {
+                    const match = style.backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+                    if (match?.[1]) {
+                        return this.ensureAbsoluteUrl(match[1]);
+                    }
                 }
-            }
+            } catch { /* Ignore cross-origin errors */ }
 
             return null;
         }
 
+        /**
+         * Find nearest visible image to coordinates.
+         * @param {number} x - Client X coordinate
+         * @param {number} y - Client Y coordinate
+         * @returns {HTMLImageElement|null}
+         */
         static findNearestVisibleImage(x, y) {
+            const minDim = Config.detection.minImageDimension;
             const images = Array.from(document.querySelectorAll('img'))
-                .filter(img => Utils.isElementVisible(img) && img.naturalWidth > 50 && img.naturalHeight > 50);
+                .filter(img => {
+                    return visibilityObserver.isVisible(img) &&
+                           img.naturalWidth > minDim &&
+                           img.naturalHeight > minDim;
+                });
 
             if (images.length === 0) return null;
 
             let nearestImage = null;
             let shortestDistance = Infinity;
 
-            images.forEach(img => {
+            for (const img of images) {
                 const rect = img.getBoundingClientRect();
                 const centerX = rect.left + rect.width / 2;
                 const centerY = rect.top + rect.height / 2;
-                const distance = Math.sqrt(Math.pow(centerX - x, 2) + Math.pow(centerY - y, 2));
+                const distance = Math.hypot(centerX - x, centerY - y);
 
                 if (distance < shortestDistance) {
                     shortestDistance = distance;
                     nearestImage = img;
                 }
-            });
+            }
 
             return nearestImage;
         }
 
+        /**
+         * Convert relative URL to absolute.
+         * @param {string} url
+         * @returns {string}
+         */
+        static ensureAbsoluteUrl(url) {
+            if (!url) return url;
+            if (url.startsWith('//')) {
+                return window.location.protocol + url;
+            }
+            if (url.startsWith('/')) {
+                return window.location.origin + url;
+            }
+            return url;
+        }
+
+        /**
+         * Remove duplicate URLs from source list.
+         * @param {Array<{url: string, priority: number}>} sources
+         * @returns {Array<{url: string, priority: number}>}
+         */
         static deduplicateSources(sources) {
-            const uniqueSources = [];
-            const seenUrls = new Set();
-
-            sources.filter(source => source?.url).forEach(source => {
-                if (!seenUrls.has(source.url)) {
-                    seenUrls.add(source.url);
-                    uniqueSources.push(source);
-                }
+            const seen = new Set();
+            return sources.filter(source => {
+                if (!source?.url || seen.has(source.url)) return false;
+                seen.add(source.url);
+                return true;
             });
-
-            return uniqueSources;
         }
     }
 
-    // ===== Download Queue Module =====
+    // =========================================================================
+    // DOWNLOAD QUEUE
+    // Manages download queue with retry logic and error handling.
+    // =========================================================================
+
+    /**
+     * Download item status types.
+     * @typedef {'queued'|'downloading'|'complete'|'initiated'|'failed'} DownloadStatus
+     */
+
+    /**
+     * @typedef {Object} DownloadItem
+     * @property {string} url - Image URL
+     * @property {string} filename - Target filename
+     * @property {DownloadStatus} status - Current status
+     * @property {Date} addedTime - When item was queued
+     * @property {Date|null} startTime - When download started
+     * @property {Date|null} endTime - When download completed
+     * @property {number} retries - Number of retry attempts
+     * @property {string} method - Download method used
+     * @property {number|null} timeoutId - Pending timeout ID
+     * @property {DownloadError|null} lastError - Last error encountered
+     * @property {string|null} perceptualHash - Content hash for deduplication
+     * @property {Blob|null} blob - Downloaded blob data (for hash generation)
+     */
+
+    /**
+     * Manages the download queue with verified completion tracking.
+     */
     class DownloadQueue {
         constructor() {
+            /** @type {DownloadItem[]} */
             this.queue = [];
             this.activeDownloads = 0;
             this.isProcessing = false;
             this.startTime = null;
         }
 
+        /**
+         * Add image to download queue.
+         * @param {string} imgUrl - URL to download
+         * @returns {'queued'|'already_in_queue'|'duplicate'}
+         */
         add(imgUrl) {
             if (!imgUrl) return false;
 
@@ -549,8 +1207,12 @@
                 return 'already_in_queue';
             }
 
-            if (Config.deduplication.enabled && downloadHistory.isDuplicate(imgUrl)) {
+            // Check URL-based duplicate (fast check before downloading)
+            if (Config.deduplication.enabled && downloadHistory.isDuplicateUrl(imgUrl)) {
                 if (Config.deduplication.skipDuplicates) {
+                    if (Config.deduplication.notifyOnDuplicate) {
+                        NotificationManager.show('Duplicate image (URL match)');
+                    }
                     Utils.log('Duplicate image detected, skipping:', imgUrl);
                     return 'duplicate';
                 }
@@ -558,6 +1220,7 @@
 
             const filename = Utils.createFilename(imgUrl);
 
+            /** @type {DownloadItem} */
             const downloadItem = {
                 url: imgUrl,
                 filename: filename,
@@ -567,7 +1230,10 @@
                 endTime: null,
                 retries: 0,
                 method: 'pending',
-                timeoutId: null  // Track timeout per-item to prevent duplicate completions
+                timeoutId: null,
+                lastError: null,
+                perceptualHash: null,
+                blob: null
             };
 
             this.queue.push(downloadItem);
@@ -575,28 +1241,38 @@
 
             if (!this.isProcessing) {
                 if (!this.startTime) this.startTime = new Date();
-                setTimeout(() => this.process(), 100);
+                setTimeout(() => this.process(), Config.timeouts.processQueue);
             }
 
             return 'queued';
         }
 
+        /**
+         * Check if URL is already in queue.
+         * @param {string} url
+         * @returns {boolean}
+         */
         isInQueue(url) {
             if (!url) return false;
             const normalizedUrl = Utils.normalizeUrl(url);
             return this.queue.some(item =>
                 Utils.normalizeUrl(item.url) === normalizedUrl &&
-                item.status !== 'failed'
+                !['failed', 'complete'].includes(item.status)
             );
         }
 
+        /**
+         * Process next items in queue.
+         */
         process() {
             if (this.queue.length === 0 && this.activeDownloads === 0) {
                 this.isProcessing = false;
 
-                if (Config.closeTabAfterDownload &&
-                    this.queue.filter(item => item.status === 'complete').length <= Config.autoCloseThreshold) {
-                    setTimeout(() => window.close(), 500);
+                if (Config.closeTabAfterDownload) {
+                    const completedCount = this.queue.filter(item => item.status === 'complete').length;
+                    if (completedCount <= Config.autoCloseThreshold) {
+                        setTimeout(() => window.close(), 500);
+                    }
                 }
 
                 return;
@@ -604,7 +1280,7 @@
 
             this.isProcessing = true;
 
-            while (this.activeDownloads < Config.maxParallelDownloads && this.queue.length > 0) {
+            while (this.activeDownloads < Config.maxParallelDownloads) {
                 const nextItemIndex = this.queue.findIndex(item => item.status === 'queued');
                 if (nextItemIndex === -1) break;
 
@@ -613,12 +1289,16 @@
                 item.startTime = new Date();
                 this.activeDownloads++;
 
-                Utils.log(`Starting download for: ${item.url} (${this.activeDownloads} active, ${this.queue.length} total)`);
+                Utils.log(`Starting download for: ${item.url} (${this.activeDownloads} active)`);
 
                 this.startDownload(item);
             }
         }
 
+        /**
+         * Start download using configured method.
+         * @param {DownloadItem} item
+         */
         startDownload(item) {
             const methods = {
                 'gm': () => this.downloadWithGM(item),
@@ -626,39 +1306,167 @@
                 'direct': () => this.downloadDirect(item)
             };
 
-            const method = methods[Config.downloadMethod] || methods.direct;
+            const method = methods[Config.downloadMethod] || methods.gm;
             method();
         }
 
+        /**
+         * Download using GM_download API (preferred - has callbacks).
+         * @param {DownloadItem} item
+         */
         downloadWithGM(item) {
             if (typeof GM_download === 'undefined') {
-                this.downloadWithFetch(item);  // Fallback to fetch (verified), not direct (unverified)
+                Utils.log('GM_download unavailable, falling back to fetch');
+                this.downloadWithFetch(item);
                 return;
             }
 
+            item.method = 'gm';
+
             try {
-                GM_download({
+                const downloadConfig = {
                     url: item.url,
                     name: item.filename,
+                    timeout: Config.timeouts.gmDownload,
                     onload: () => {
                         Utils.log('Download successful via GM_download');
+                        // GM_download doesn't give us the blob, so we can't generate perceptual hash
+                        // This is a tradeoff for simplicity - URL-based dedup still works
                         this.completeDownload(item, 'complete');
                     },
                     onerror: (error) => {
-                        Utils.log('GM_download failed:', error);
+                        const downloadError = new DownloadError(
+                            error.error || 'GM_download failed',
+                            error.error === 'not_whitelisted' ? 'cors' : 'unknown'
+                        );
+                        Utils.logError('GM_download', downloadError);
+                        item.lastError = downloadError;
                         this.clearItemTimeout(item);
-                        this.downloadWithFetch(item);  // Fallback to fetch (verified)
+                        this.downloadWithFetch(item);
+                    },
+                    ontimeout: () => {
+                        const downloadError = new DownloadError('GM_download timed out', 'timeout');
+                        Utils.logError('GM_download', downloadError);
+                        item.lastError = downloadError;
+                        this.clearItemTimeout(item);
+                        this.downloadWithFetch(item);
                     }
-                });
-                item.method = 'gm';
-            } catch (e) {
-                Utils.log('GM_download error:', e);
+                };
+
+                GM_download(downloadConfig);
+
+            } catch (error) {
+                const downloadError = DownloadError.fromException(error);
+                Utils.logError('GM_download exception', downloadError);
+                item.lastError = downloadError;
                 this.clearItemTimeout(item);
-                this.downloadWithFetch(item);  // Fallback to fetch (verified)
+                this.downloadWithFetch(item);
             }
         }
 
+        /**
+         * Download using Fetch API (verified - we get the data).
+         * @param {DownloadItem} item
+         */
+        downloadWithFetch(item) {
+            this.clearItemTimeout(item);
+            item.method = 'fetch';
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), Config.timeouts.fetchRequest);
+
+            // Cache-bust URL to avoid stale responses
+            const cacheBustUrl = item.url.includes('?')
+                ? `${item.url}&_cb=${Date.now()}`
+                : `${item.url}?_cb=${Date.now()}`;
+
+            fetch(cacheBustUrl, {
+                method: 'GET',
+                mode: 'cors',
+                credentials: 'include',
+                headers: { 'Accept': 'image/*, */*' },
+                signal: controller.signal
+            })
+            .then(response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) {
+                    throw DownloadError.fromResponse(response);
+                }
+                return response.arrayBuffer();
+            })
+            .then(async arrayBuffer => {
+                const bytes = new Uint8Array(arrayBuffer);
+                const mimeType = Utils.detectMimeType(bytes);
+                Utils.log('Detected MIME type:', mimeType);
+
+                const blob = new Blob([arrayBuffer], { type: mimeType });
+                item.blob = blob;
+
+                if (Config.fixContentType) {
+                    item.filename = Utils.updateExtension(item.filename, mimeType);
+                }
+
+                // Generate perceptual hash for content-based deduplication
+                if (Config.deduplication.perceptualHash.enabled) {
+                    try {
+                        item.perceptualHash = await PerceptualHash.generate(blob);
+
+                        // Check for content duplicate before saving
+                        if (item.perceptualHash) {
+                            const dupCheck = downloadHistory.checkDuplicate(item.url, item.perceptualHash);
+                            if (dupCheck.isDuplicate && dupCheck.reason === 'content') {
+                                Utils.log('Content duplicate detected via perceptual hash');
+                                if (Config.deduplication.skipDuplicates) {
+                                    if (Config.deduplication.notifyOnDuplicate) {
+                                        NotificationManager.show('Duplicate image (content match)');
+                                    }
+                                    this.completeDownload(item, 'duplicate');
+                                    return;
+                                }
+                            }
+                        }
+                    } catch (hashError) {
+                        Utils.logError('Perceptual hash generation', hashError);
+                        // Continue without hash - URL dedup still works
+                    }
+                }
+
+                this.saveBlobAsFile(item, blob);
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                
+                let downloadError;
+                if (error instanceof DownloadError) {
+                    downloadError = error;
+                } else if (error.name === 'AbortError') {
+                    downloadError = new DownloadError('Request timed out', 'timeout');
+                } else {
+                    downloadError = DownloadError.fromException(error);
+                }
+
+                Utils.logError('Fetch download', downloadError);
+                item.lastError = downloadError;
+                this.clearItemTimeout(item);
+
+                if (item.retries < Config.retry.maxAttempts) {
+                    item.retries++;
+                    Utils.log(`Retrying download (attempt ${item.retries + 1})`);
+                    setTimeout(() => this.downloadDirect(item), Config.retry.delayMs);
+                } else {
+                    this.completeDownload(item, 'failed');
+                }
+            });
+        }
+
+        /**
+         * Download using anchor click (unverified - last resort).
+         * @param {DownloadItem} item
+         */
         downloadDirect(item) {
+            this.clearItemTimeout(item);
+            item.method = 'direct';
+
             const anchor = document.createElement('a');
             anchor.href = item.url;
             anchor.download = item.filename;
@@ -667,84 +1475,55 @@
 
             try {
                 anchor.click();
-                item.method = 'direct';
 
-                // IMPORTANT: Direct downloads cannot verify completion (browser limitation).
-                // We mark as 'initiated' instead of 'complete' to avoid corrupting
-                // the duplicate tracking system with unverified downloads.
+                // Direct downloads cannot verify completion (browser limitation).
+                // Mark as 'initiated' to avoid corrupting duplicate tracking.
                 item.timeoutId = setTimeout(() => {
                     this.completeDownload(item, 'initiated');
-                }, 3000);
-            } catch (e) {
-                Utils.log('Error in direct download:', e);
-                document.body.removeChild(anchor);
-                this.clearItemTimeout(item);
+                }, Config.timeouts.directDownload);
 
-                if (item.retries < 2) {
-                    item.retries++;
-                    this.downloadWithFetch(item);
-                } else {
-                    this.completeDownload(item, 'failed');
+            } catch (error) {
+                const downloadError = DownloadError.fromException(error);
+                Utils.logError('Direct download', downloadError);
+                item.lastError = downloadError;
+
+                // Clean up anchor immediately on error
+                if (document.body.contains(anchor)) {
+                    document.body.removeChild(anchor);
                 }
+
+                this.completeDownload(item, 'failed');
+                return;
             }
 
+            // Clean up anchor after delay
             setTimeout(() => {
                 if (document.body.contains(anchor)) {
                     document.body.removeChild(anchor);
                 }
-            }, 1000);
+            }, Config.timeouts.anchorCleanup);
         }
 
-        downloadWithFetch(item) {
-            // Clear any pending timeout from a previous method attempt
-            this.clearItemTimeout(item);
-
-            const cacheBustUrl = item.url.includes('?')
-                ? `${item.url}&_=${Date.now()}`
-                : `${item.url}?_=${Date.now()}`;
-
-            item.method = 'fetch';
-
-            fetch(cacheBustUrl, {
-                method: 'GET',
-                mode: 'cors',
-                credentials: 'include',
-                headers: { 'Accept': 'image/*, */*' }
-            })
-            .then(response => {
-                if (!response.ok) throw new Error(`Fetch error: ${response.status}`);
-                return response.arrayBuffer();
-            })
-            .then(arrayBuffer => {
-                const mimeType = Utils.detectMimeType(new Uint8Array(arrayBuffer));
-                Utils.log('Detected MIME type (fetch):', mimeType);
-
-                const blob = new Blob([arrayBuffer], { type: mimeType });
-
-                if (Config.fixContentType) {
-                    item.filename = Utils.updateExtension(item.filename, mimeType);
-                }
-
-                this.saveBlobAsFile(item, blob);
-            })
-            .catch(err => {
-                Utils.log('Fetch failed:', err);
-                this.clearItemTimeout(item);
-                if (item.retries < 2) {
-                    item.retries++;
-                    // Last resort: try direct, but it won't be marked as verified
-                    this.downloadDirect(item);
-                } else {
-                    this.completeDownload(item, 'failed');
-                }
-            });
-        }
-
+        /**
+         * Save blob data as file download.
+         * @param {DownloadItem} item
+         * @param {Blob} blob
+         */
         saveBlobAsFile(item, blob) {
-            // Clear any pending timeout from direct download attempt
             this.clearItemTimeout(item);
 
-            const objectURL = URL.createObjectURL(blob);
+            let objectURL = null;
+
+            try {
+                objectURL = URL.createObjectURL(blob);
+            } catch (error) {
+                const downloadError = new DownloadError('Failed to create object URL', 'filesystem', null, error);
+                Utils.logError('Blob URL creation', downloadError);
+                item.lastError = downloadError;
+                this.completeDownload(item, 'failed');
+                return;
+            }
+
             const anchor = document.createElement('a');
             anchor.href = objectURL;
             anchor.download = item.filename;
@@ -755,56 +1534,78 @@
                 anchor.click();
 
                 // Fetch-based blob downloads are verified (we have the data),
-                // so we can confidently mark as complete
+                // so we can confidently mark as complete after browser processes it.
                 item.timeoutId = setTimeout(() => {
                     this.completeDownload(item, 'complete');
-                }, 2000);
-            } catch (e) {
-                Utils.log('Error in blob download:', e);
+                }, Config.timeouts.blobSave);
+
+            } catch (error) {
+                const downloadError = DownloadError.fromException(error);
+                Utils.logError('Blob save', downloadError);
+                item.lastError = downloadError;
                 this.completeDownload(item, 'failed');
             }
 
+            // Clean up DOM and revoke URL
             setTimeout(() => {
                 if (document.body.contains(anchor)) {
                     document.body.removeChild(anchor);
                 }
-                URL.revokeObjectURL(objectURL);
-            }, 1000);
+                if (objectURL) {
+                    try {
+                        URL.revokeObjectURL(objectURL);
+                    } catch { /* Ignore revocation errors */ }
+                }
+            }, Config.timeouts.anchorCleanup);
         }
 
+        /**
+         * Mark download as complete with given status.
+         * @param {DownloadItem} item
+         * @param {'complete'|'initiated'|'failed'|'duplicate'} status
+         */
         completeDownload(item, status) {
-            // Guard against duplicate calls - check all terminal states
-            if (item.status === 'complete' || item.status === 'failed' || item.status === 'initiated') {
+            // Guard against duplicate completion calls
+            if (['complete', 'failed', 'initiated', 'duplicate'].includes(item.status)) {
                 return;
             }
 
-            // Clear any pending timeout for this item to prevent race conditions
             this.clearItemTimeout(item);
 
             item.status = status;
             item.endTime = new Date();
-            this.activeDownloads--;
+            this.activeDownloads = Math.max(0, this.activeDownloads - 1);
 
-            Utils.log(`Download ${status}: ${item.filename} (${this.activeDownloads} active, ${this.queue.length} total)`);
+            const duration = item.startTime ? 
+                ((item.endTime - item.startTime) / 1000).toFixed(2) : '?';
+            Utils.log(`Download ${status}: ${item.filename} (${duration}s, ${this.activeDownloads} active)`);
 
             // Only add to duplicate history for VERIFIED completions
-            // 'initiated' means we sent the request but can't verify it succeeded
             if (status === 'complete') {
-                downloadHistory.add(item.url, item.filename);
+                downloadHistory.add(item.url, item.filename, item.perceptualHash);
             }
 
-            if (Config.showNotifications) {
-                const statusMessage = {
-                    'complete': 'complete',
-                    'initiated': 'sent (unverified)',
-                    'failed': 'failed'
-                }[status] || status;
-                NotificationManager.show(`${item.filename} download ${statusMessage}`);
+            // Clean up blob reference
+            item.blob = null;
+
+            // Show notification with appropriate message
+            if (Config.showNotifications || (status === 'failed' && Config.errors.showDetails)) {
+                const statusMessages = {
+                    'complete': 'Download complete',
+                    'initiated': 'Download sent (unverified)',
+                    'failed': item.lastError ? item.lastError.toUserMessage() : 'Download failed',
+                    'duplicate': 'Duplicate skipped'
+                };
+                NotificationManager.show(`${item.filename}: ${statusMessages[status]}`);
             }
 
-            setTimeout(() => this.process(), 100);
+            setTimeout(() => this.process(), Config.timeouts.processQueue);
         }
 
+        /**
+         * Clear pending timeout for item.
+         * @param {DownloadItem} item
+         */
         clearItemTimeout(item) {
             if (item.timeoutId) {
                 clearTimeout(item.timeoutId);
@@ -812,34 +1613,62 @@
             }
         }
 
+        /**
+         * Retry failed and unverified downloads.
+         */
         retryFailed() {
             let retryCount = 0;
 
-            this.queue.forEach(item => {
-                // Also allow retrying 'initiated' (unverified) downloads
+            for (const item of this.queue) {
                 if (item.status === 'failed' || item.status === 'initiated') {
                     item.status = 'queued';
                     item.retries = 0;
                     item.timeoutId = null;
+                    item.lastError = null;
                     retryCount++;
                 }
-            });
+            }
 
             if (retryCount > 0) {
-                NotificationManager.show(`Retrying ${retryCount} failed/unverified downloads`);
+                NotificationManager.show(`Retrying ${retryCount} download(s)`);
                 this.process();
             } else {
                 NotificationManager.show('No failed downloads to retry');
             }
         }
 
+        /**
+         * Get queue statistics.
+         * @returns {{total: number, complete: number, failed: number, pending: number}}
+         */
+        getStats() {
+            return {
+                total: this.queue.length,
+                complete: this.queue.filter(i => i.status === 'complete').length,
+                failed: this.queue.filter(i => i.status === 'failed').length,
+                pending: this.queue.filter(i => ['queued', 'downloading'].includes(i.status)).length
+            };
+        }
+
+        /**
+         * Clean up all pending operations.
+         */
         cleanup() {
-            // Clear all item-specific timeouts
-            this.queue.forEach(item => this.clearItemTimeout(item));
+            for (const item of this.queue) {
+                this.clearItemTimeout(item);
+                item.blob = null;
+            }
         }
     }
 
-    // ===== UI Components =====
+    // =========================================================================
+    // UI COMPONENTS
+    // Visual feedback for download status.
+    // =========================================================================
+
+    /**
+     * Draggable pill notification for download status.
+     */
     class PillNotification {
         constructor() {
             this.element = null;
@@ -848,6 +1677,10 @@
             this.dragState = {};
         }
 
+        /**
+         * Show pill with given state.
+         * @param {'success'|'info'|'warning'|'error'} state
+         */
         show(state) {
             if (!Config.showQueueStatus) return;
 
@@ -855,8 +1688,8 @@
 
             const states = {
                 success: { color: '#4CAF50', icon: '?' },
-                info: { color: '#2196F3', icon: '-' },
-                warning: { color: '#FF9800', icon: '-' },
+                info: { color: '#2196F3', icon: '–' },
+                warning: { color: '#FF9800', icon: '–' },
                 error: { color: '#F44336', icon: '!' }
             };
 
@@ -890,7 +1723,7 @@
                 transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
             `;
 
-            this.element.innerHTML = currentState.icon;
+            this.element.textContent = currentState.icon;
 
             this.element.addEventListener('mousedown', e => this.handleMouseDown(e));
             this.element.addEventListener('mouseenter', () => this.resetFadeTimer());
@@ -898,14 +1731,19 @@
 
             document.body.appendChild(this.element);
 
-            setTimeout(() => {
-                this.element.style.opacity = '1';
-                this.element.style.transform = 'translateX(-50%) scale(1)';
-
-                setTimeout(() => this.resetFadeTimer(), 300);
-            }, 10);
+            // Animate in
+            requestAnimationFrame(() => {
+                if (this.element) {
+                    this.element.style.opacity = '1';
+                    this.element.style.transform = 'translateX(-50%) scale(1)';
+                    setTimeout(() => this.resetFadeTimer(), 300);
+                }
+            });
         }
 
+        /**
+         * Remove pill from DOM.
+         */
         remove() {
             if (this.fadeTimeout) {
                 clearTimeout(this.fadeTimeout);
@@ -918,6 +1756,9 @@
             }
         }
 
+        /**
+         * Reset fade timer.
+         */
         resetFadeTimer() {
             if (!this.element) return;
 
@@ -933,9 +1774,13 @@
                     this.element.style.transition = 'opacity 0.8s ease';
                     this.element.style.opacity = '0.4';
                 }
-            }, 3000);
+            }, Config.timeouts.pillFade);
         }
 
+        /**
+         * Handle mouse down for dragging.
+         * @param {MouseEvent} event
+         */
         handleMouseDown(event) {
             event.preventDefault();
             event.stopPropagation();
@@ -947,9 +1792,10 @@
                 startTime: Date.now(),
                 startX: event.clientX,
                 startY: event.clientY,
-                elementRect: this.element.getBoundingClientRect(),
-                pillStartX: this.element.getBoundingClientRect().left + this.element.getBoundingClientRect().width / 2,
-                pillStartY: this.element.getBoundingClientRect().top + this.element.getBoundingClientRect().height / 2
+                pillStartX: this.element.getBoundingClientRect().left + 
+                            this.element.getBoundingClientRect().width / 2,
+                pillStartY: this.element.getBoundingClientRect().top + 
+                            this.element.getBoundingClientRect().height / 2
             };
 
             document.addEventListener('mousemove', this.handleMouseMove);
@@ -961,7 +1807,7 @@
 
             const deltaX = event.clientX - this.dragState.startX;
             const deltaY = event.clientY - this.dragState.startY;
-            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const distance = Math.hypot(deltaX, deltaY);
 
             if (distance > 5) {
                 this.isDragging = true;
@@ -974,7 +1820,7 @@
                 this.element.style.transform = 'translate(-50%, -50%)';
                 this.element.style.cursor = 'grabbing';
             }
-        }
+        };
 
         handleMouseUp = (event) => {
             event.preventDefault();
@@ -987,77 +1833,128 @@
 
             if (!this.isDragging && clickDuration < 200) {
                 this.remove();
-            } else if (this.isDragging) {
+            } else if (this.isDragging && this.element) {
                 this.element.style.cursor = 'grab';
                 this.resetFadeTimer();
             }
 
             this.isDragging = false;
-        }
+        };
     }
 
+    /**
+     * Simple notification manager for text messages.
+     */
     class NotificationManager {
+        /**
+         * Show notification message.
+         * @param {string} message
+         */
         static show(message) {
-            if (!Config.showNotifications) return;
+            if (!Config.showNotifications && !Config.errors.showDetails) return;
 
             if (typeof GM_notification !== 'undefined') {
-                GM_notification({
-                    text: message,
-                    title: 'Image Downloader',
-                    timeout: 2000
-                });
-            } else {
-                const notification = document.createElement('div');
-                notification.textContent = message;
-                notification.style.cssText = `
-                    position: fixed;
-                    top: 10px;
-                    right: 10px;
-                    background: rgba(0, 0, 0, 0.7);
-                    color: white;
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                    z-index: 9999;
-                    font-family: Arial, sans-serif;
-                    font-size: 14px;
-                    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-                `;
+                try {
+                    GM_notification({
+                        text: message,
+                        title: 'Image Downloader',
+                        timeout: Config.timeouts.notificationFade
+                    });
+                    return;
+                } catch { /* Fall through to DOM notification */ }
+            }
 
-                document.body.appendChild(notification);
+            const notification = document.createElement('div');
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 10px 16px;
+                border-radius: 6px;
+                z-index: 2147483647;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-size: 14px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                max-width: 300px;
+                word-wrap: break-word;
+                opacity: 0;
+                transform: translateY(-10px);
+                transition: all 0.3s ease;
+            `;
+
+            document.body.appendChild(notification);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                notification.style.opacity = '1';
+                notification.style.transform = 'translateY(0)';
+            });
+
+            // Fade out and remove
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateY(-10px)';
 
                 setTimeout(() => {
-                    notification.style.opacity = '0';
-                    notification.style.transition = 'opacity 0.5s';
-
-                    setTimeout(() => {
-                        if (notification.parentNode) {
-                            document.body.removeChild(notification);
-                        }
-                    }, 500);
-                }, 2000);
-            }
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, Config.timeouts.notificationFade);
         }
     }
 
-    // ===== Mouse Tracker =====
-    const MouseTracker = {
+    // =========================================================================
+    // MOUSE TRACKER
+    // Debounced mouse position tracking.
+    // =========================================================================
+
+    /**
+     * Tracks mouse position with debouncing for performance.
+     */
+    const mouseTracker = {
         x: 0,
         y: 0,
+        _handler: null,
 
+        /**
+         * Initialize mouse tracking.
+         */
         init() {
-            if (Config.trackMousePosition) {
-                document.addEventListener('mousemove', this.track, { passive: true });
-            }
+            if (!Config.detection.trackMousePosition) return;
+
+            this._handler = Utils.debounce((event) => {
+                this.x = event.clientX;
+                this.y = event.clientY;
+            }, Config.detection.mouseTrackDebounceMs);
+
+            document.addEventListener('mousemove', this._handler, { passive: true });
         },
 
-        track(event) {
-            MouseTracker.x = event.clientX;
-            MouseTracker.y = event.clientY;
+        /**
+         * Clean up event listener.
+         */
+        destroy() {
+            if (this._handler) {
+                document.removeEventListener('mousemove', this._handler);
+                this._handler = null;
+            }
         }
     };
 
-    // ===== Event Handlers =====
+    // =========================================================================
+    // EVENT HANDLERS
+    // User interaction handling.
+    // =========================================================================
+
     const EventHandlers = {
+        /**
+         * Handle double-click for image download.
+         * @param {MouseEvent} event
+         */
         handleDoubleClick(event) {
             // Require Ctrl + Double Click
             if (!event.ctrlKey) return;
@@ -1080,69 +1977,113 @@
                 pillNotification.show(stateMap[queueResult] || 'error');
             } else {
                 pillNotification.show('error');
+                Utils.log('No image found at click location');
             }
         },
 
+        /**
+         * Handle debug hotkeys.
+         * @param {KeyboardEvent} event
+         */
         handleDebugHotkey(event) {
-            if (event.altKey && event.key.toLowerCase() === 'd') {
-                const element = document.elementFromPoint(MouseTracker.x, MouseTracker.y);
+            if (!event.altKey) return;
+
+            const key = event.key.toLowerCase();
+
+            // Alt+D: Debug element under cursor
+            if (key === 'd') {
+                const element = document.elementFromPoint(mouseTracker.x, mouseTracker.y);
                 Utils.log('Debug element under cursor:', element);
 
                 const imgSrc = ImageFinder.find(element);
                 Utils.log('Image source found:', imgSrc);
 
                 if (imgSrc) {
-                    const isDup = downloadHistory.isDuplicate(imgSrc);
-                    NotificationManager.show(`Image found: ${imgSrc.substring(0, 20)}... ${isDup ? '(DUPLICATE)' : ''}`);
+                    const dupCheck = downloadHistory.checkDuplicate(imgSrc, null);
+                    const dupStatus = dupCheck.isDuplicate ? `(DUPLICATE: ${dupCheck.reason})` : '';
+                    NotificationManager.show(`Found: ${imgSrc.substring(0, 30)}... ${dupStatus}`);
                 } else {
-                    NotificationManager.show('No image found at cursor position');
+                    NotificationManager.show('No image found at cursor');
                 }
             }
 
-            if (event.altKey && event.key.toLowerCase() === 'q') {
-                if (pillNotification.element?.style.opacity === '1') {
-                    pillNotification.element.style.opacity = '0';
+            // Alt+Q: Toggle pill visibility
+            if (key === 'q') {
+                if (pillNotification.element?.style.opacity !== '0') {
+                    pillNotification.remove();
                 } else {
                     pillNotification.show('success');
                 }
             }
 
-            if (Config.deduplication.clearCacheHotkey && event.altKey && event.key.toLowerCase() === 'x') {
+            // Alt+X: Clear download history
+            if (key === 'x' && Config.deduplication.clearCacheHotkey) {
                 downloadHistory.clear();
-                NotificationManager.show('Download history cleared');
             }
 
-            if (event.altKey && event.key.toLowerCase() === 'r') {
+            // Alt+R: Retry failed downloads
+            if (key === 'r') {
                 downloadQueue.retryFailed();
+            }
+
+            // Alt+S: Show queue statistics
+            if (key === 's') {
+                const stats = downloadQueue.getStats();
+                NotificationManager.show(
+                    `Queue: ${stats.complete}? ${stats.failed}? ${stats.pending}?`
+                );
             }
         }
     };
 
-    // ===== Main Application =====
-    const downloadHistory = new DownloadHistory();
-    const downloadQueue = new DownloadQueue();
-    const pillNotification = new PillNotification();
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
 
+    // Module instances
+    let visibilityObserver;
+    let downloadHistory;
+    let downloadQueue;
+    let pillNotification;
+
+    /**
+     * Initialize the image downloader.
+     */
     function initialize() {
+        // Create instances
+        visibilityObserver = new VisibilityObserver();
+        downloadHistory = new DownloadHistory();
+        downloadQueue = new DownloadQueue();
+        pillNotification = new PillNotification();
+
+        // Set up event listeners
         document.addEventListener('dblclick', EventHandlers.handleDoubleClick, true);
 
-        MouseTracker.init();
+        mouseTracker.init();
 
-        if (Config.addDebugHotkey) {
+        if (Config.detection.addDebugHotkey) {
             document.addEventListener('keydown', EventHandlers.handleDebugHotkey);
         }
 
-        window.addEventListener('beforeunload', () => downloadQueue.cleanup());
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            downloadQueue.cleanup();
+            visibilityObserver.destroy();
+            mouseTracker.destroy();
+        });
 
-        Utils.log('Universal Image Downloader Refactored initialized');
+        Utils.log('Universal Image Downloader v7.0 initialized');
+        Utils.log('Config:', Config);
 
+        // Show startup notification in debug mode
         if (Config.debug) {
             setTimeout(() => {
-                NotificationManager.show('Image Downloader active (Alt+D to debug)');
-            }, 1000);
+                NotificationManager.show('Image Downloader active (Ctrl+DblClick to download)');
+            }, Config.timeouts.initNotification);
         }
     }
 
+    // Start when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initialize);
     } else {
