@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Media Downloader",
   "version": "1.1",
-  "description": "Download images from selected tabs",
+  "description": "Download media from selected tabs",
   "permissions": [
     "tabs",
     "downloads",
@@ -29,13 +29,13 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "Download images from selected tabs"
+      "description": "Download media from selected tabs"
     },
     "download-current-tab": {
       "suggested_key": {
         "default": "Alt+Shift+D"
       },
-      "description": "Download image from current tab"
+      "description": "Download media from current tab"
     }
   },
   "icons": {

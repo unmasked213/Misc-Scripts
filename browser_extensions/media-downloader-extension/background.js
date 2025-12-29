@@ -1,5 +1,5 @@
 /**
- * Image Downloader Extension - Background Service Worker
+ * Media Downloader Extension - Background Service Worker
  * Handles tab selection, download coordination, and deduplication.
  */
 
@@ -68,7 +68,7 @@ const DownloadState = {
 
 const Utils = {
     log(...args) {
-        console.log('[ImageDownloader]', ...args);
+        console.log('[MediaDownloader]', ...args);
     },
 
     normalizeUrl(url) {
