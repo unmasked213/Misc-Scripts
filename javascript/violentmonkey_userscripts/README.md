@@ -15,7 +15,7 @@ Userscripts that enhance your web browsing experience. Requires [Violentmonkey](
 | [Reddit to Redlib Redirector](#reddit-to-redlib-redirector) | Redirect Reddit to privacy-friendly Redlib |
 | [Video Management Template](#video-management-template) | Template for site-specific video controls |
 
-> **Note:** The Universal Image Downloader userscript has been replaced by a native browser extension with improved features. See [browser_extensions/image-downloader-extension](../../browser_extensions/image-downloader-extension/).
+> **Note:** The Universal Image Downloader userscript has been replaced by a native browser extension with improved features. See [browser_extensions/media-downloader-extension](../../browser_extensions/media-downloader-extension/).
 
 ### Other Sections
 - [Installation](#installation)

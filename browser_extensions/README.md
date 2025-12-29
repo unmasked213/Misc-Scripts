@@ -8,7 +8,7 @@ Native browser extensions for Chrome, Brave, Edge, and other Chromium-based brow
 
 | Extension | Description | Details |
 |-----------|-------------|---------|
-| [Image Downloader](image-downloader-extension/) | Batch download images from selected tabs with duplicate detection | [README](image-downloader-extension/README.md) |
+| [Media Downloader](media-downloader-extension/) | Batch download images from selected tabs with duplicate detection | [README](media-downloader-extension/README.md) |
 
 ---
 

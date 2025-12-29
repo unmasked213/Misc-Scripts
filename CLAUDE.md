@@ -29,7 +29,7 @@ Misc-Scripts/
 ├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
 │   ├── CLAUDE.md                     # Extension development guidelines
 │   ├── README.md                     # User-facing documentation
-│   └── image-downloader-extension/   # Batch image downloader with deduplication
+│   └── media-downloader-extension/   # Batch image downloader with deduplication
 │       ├── manifest.json             # Extension manifest (Manifest V3)
 │       ├── background.js             # Service worker for downloads
 │       ├── popup.html                # Popup UI
@@ -101,12 +101,12 @@ Misc-Scripts/
 
 | Extension | Purpose | Entry Point |
 |-----------|---------|-------------|
-| `image-downloader-extension/` | Batch download images from selected tabs with duplicate detection | Load unpacked in Developer mode |
+| `media-downloader-extension/` | Batch download images from selected tabs with duplicate detection | Load unpacked in Developer mode |
 
 **Key Files**:
-- `image-downloader-extension/manifest.json` - Extension manifest (Manifest V3)
-- `image-downloader-extension/background.js` - Service worker with download logic and perceptual hashing
-- `image-downloader-extension/popup.html` - Popup UI with progress tracking
+- `media-downloader-extension/manifest.json` - Extension manifest (Manifest V3)
+- `media-downloader-extension/background.js` - Service worker with download logic and perceptual hashing
+- `media-downloader-extension/popup.html` - Popup UI with progress tracking
 - `browser_extensions/CLAUDE.md` - Development guidelines for extensions
 
 **Dependencies**: Chromium-based browser (Chrome, Brave, Edge). No external libraries.

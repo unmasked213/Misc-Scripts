@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(ren \"image-downloader-extension\" \"media-downloader-extension\")",
+      "Bash(git mv:*)",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

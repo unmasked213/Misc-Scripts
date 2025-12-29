@@ -16,7 +16,7 @@ This folder contains native browser extensions using Chrome's Manifest V3 format
 browser_extensions/
 ├── CLAUDE.md                          # This file
 ├── README.md                          # User-facing documentation
-└── image-downloader-extension/        # Image batch downloader
+└── media-downloader-extension/        # Image batch downloader
     ├── manifest.json                  # Extension manifest
     ├── background.js                  # Service worker
     ├── popup.html                     # Popup UI

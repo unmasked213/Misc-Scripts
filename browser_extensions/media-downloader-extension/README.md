@@ -1,4 +1,4 @@
-# Image Downloader Extension
+# Media Downloader Extension
 
 A Chrome/Brave browser extension for batch downloading images from multiple browser tabs with intelligent duplicate detection.
 
@@ -30,7 +30,7 @@ A Chrome/Brave browser extension for batch downloading images from multiple brow
    - Edge: `edge://extensions/`
 3. Enable **Developer mode** (toggle in top right)
 4. Click **Load unpacked**
-5. Select the `image-downloader-extension` folder
+5. Select the `media-downloader-extension` folder
 
 ---
 

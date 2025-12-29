@@ -31,7 +31,7 @@ Practical utility scripts for Windows users: automation, media processing, brows
 - **[List Files](python/create_list_of_filenames/)** - Generate hierarchical file listings
 
 ### Browser Extensions
-- **[Image Downloader](browser_extensions/image-downloader-extension/)** - Batch download images from tabs
+- **[Media Downloader](browser_extensions/media-downloader-extension/)** - Batch download images from tabs
 
 ### Browser Userscripts
 - **[Global Short Video Hider](javascript/violentmonkey_userscripts/global_short_video_hider.user.js)** - Hide videos under 60s
