@@ -12,9 +12,10 @@ Userscripts that enhance your web browsing experience. Requires [Violentmonkey](
 | [Global Short Video Hider](#global-short-video-hider) | Hide videos under 60 seconds on any site |
 | [Page Hopper](#page-hopper) | Navigate paginated sites with `[` and `]` keys |
 | [Rectangle Link Selector](#rectangle-link-selector) | Select multiple links by drawing a rectangle |
-| [Universal Image Downloader](#universal-image-downloader) | Download images with double-click |
 | [Reddit to Redlib Redirector](#reddit-to-redlib-redirector) | Redirect Reddit to privacy-friendly Redlib |
 | [Video Management Template](#video-management-template) | Template for site-specific video controls |
+
+> **Note:** The Universal Image Downloader userscript has been replaced by a native browser extension with improved features. See [browser_extensions/image-downloader-extension](../../browser_extensions/image-downloader-extension/).
 
 ### Other Sections
 - [Installation](#installation)
@@ -136,48 +137,6 @@ Select multiple links by drawing a rectangle with right-click drag. Opens all se
 2. Links inside the rectangle are highlighted
 3. Release to open all highlighted links in new tabs
 4. If drag distance is below threshold, normal context menu appears
-
----
-
-## Universal Image Downloader
-
-> **File:** [`universal_image_downloader.user.js`](universal_image_downloader.user.js)
-
-Download images from any website with a simple double-click. Handles various image types and prevents duplicates.
-
-### Details
-
-| Property | Value |
-|----------|-------|
-| Version | 6.1 |
-| Match | All sites (`*://*/*`) |
-| Grants | `GM_download`, `GM_xmlhttpRequest`, `GM_setValue`, `GM_getValue`, `GM_notification`, `GM_listValues`, `GM_deleteValue` |
-| Run At | `document-start` |
-
-### Features
-
-- Double-click any image to download
-- Prevents duplicate downloads (tracks downloaded URLs)
-- Handles background images and hidden images
-- Multiple download methods (direct, fetch, GM_download)
-- Optional timestamp in filename
-- Queue system for multiple downloads
-
-### Configuration
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `closeTabAfterDownload` | false | Close tab after downloading |
-| `useTimestampInFilename` | true | Add timestamp to filename |
-| `showNotifications` | false | Show download notifications |
-| `maxParallelDownloads` | 1 | Concurrent download limit |
-
-### Supported Image Sources
-
-- Regular `<img>` elements
-- CSS background images
-- Lazy-loaded images (`data-src`, `data-lazy`)
-- `<picture>` and `<source>` elements
 
 ---
 

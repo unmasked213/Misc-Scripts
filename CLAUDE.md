@@ -6,7 +6,7 @@ A collection of practical Windows automation, media processing, browser enhancem
 
 ## Summary
 
-This repository provides Windows-focused utility scripts organized into four categories: batch automation, Python utilities, browser userscripts, and TypeScript/React components. All scripts prioritize user safety (moving files to trash instead of deleting), clear progress feedback, and double-click execution from Windows File Explorer.
+This repository provides Windows-focused utility scripts organized into five categories: batch automation, Python utilities, browser extensions, browser userscripts, and TypeScript/React components. All scripts prioritize user safety (moving files to trash instead of deleting), clear progress feedback, and double-click execution from Windows File Explorer.
 
 ---
 
@@ -26,13 +26,22 @@ Misc-Scripts/
 │   └── mp3 converter/
 │       ├── any2mp3.bat               # Convert audio files to MP3 using FFmpeg
 │       └── README.md
+├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
+│   ├── CLAUDE.md                     # Extension development guidelines
+│   ├── README.md                     # User-facing documentation
+│   └── image-downloader-extension/   # Batch image downloader with deduplication
+│       ├── manifest.json             # Extension manifest (Manifest V3)
+│       ├── background.js             # Service worker for downloads
+│       ├── popup.html                # Popup UI
+│       ├── popup.js                  # Popup logic
+│       ├── icons/                    # Extension icons
+│       └── README.md                 # Extension documentation
 ├── javascript/                        # Browser userscripts (Violentmonkey/Tampermonkey)
 │   └── violentmonkey_userscripts/
 │       ├── global_short_video_hider.user.js    # Hide short videos on any site
 │       ├── page_hopper.user.js                 # Navigate paginated sites with [ ]
 │       ├── rectangle_link_selector.user.js     # Select links by drawing rectangle
 │       ├── reddit_to_redlib_redirector.user.js # Redirect Reddit to Redlib instances
-│       ├── universal_image_downloader.user.js  # Download images from any site
 │       └── video_management_examplesite.user.js # Video management utilities template
 ├── python/                            # Python utilities for media and system management
 │   ├── create_list_of_filenames/
@@ -86,6 +95,24 @@ Misc-Scripts/
 
 ---
 
+### browser_extensions/
+
+**Purpose**: Native browser extensions for Chrome, Brave, Edge, and other Chromium-based browsers.
+
+| Extension | Purpose | Entry Point |
+|-----------|---------|-------------|
+| `image-downloader-extension/` | Batch download images from selected tabs with duplicate detection | Load unpacked in Developer mode |
+
+**Key Files**:
+- `image-downloader-extension/manifest.json` - Extension manifest (Manifest V3)
+- `image-downloader-extension/background.js` - Service worker with download logic and perceptual hashing
+- `image-downloader-extension/popup.html` - Popup UI with progress tracking
+- `browser_extensions/CLAUDE.md` - Development guidelines for extensions
+
+**Dependencies**: Chromium-based browser (Chrome, Brave, Edge). No external libraries.
+
+---
+
 ### python/
 
 **Purpose**: Python utilities for media processing, window management, and file operations.
@@ -124,7 +151,6 @@ Misc-Scripts/
 | `page_hopper.user.js` | Navigate paginated sites using `[` and `]` keys |
 | `rectangle_link_selector.user.js` | Select multiple links by right-click dragging a rectangle |
 | `reddit_to_redlib_redirector.user.js` | Redirect Reddit to privacy-friendly Redlib instances |
-| `universal_image_downloader.user.js` | Download images with double-click |
 | `video_management_examplesite.user.js` | Template for site-specific video management |
 
 **Dependencies**: Violentmonkey or Tampermonkey browser extension. Pure JavaScript, no additional libraries.
@@ -158,6 +184,11 @@ pip install -r python/Duplicate\ image\ detection\ V2/requirements.txt
 **Batch scripts**:
 - No setup needed for Windows built-in commands
 - For `any2mp3.bat`: Install FFmpeg and add to PATH
+
+**Browser extensions**:
+- Open `chrome://extensions/` (or `brave://extensions/`)
+- Enable "Developer mode"
+- Click "Load unpacked" and select the extension folder
 
 **Userscripts**:
 - Install Violentmonkey/Tampermonkey browser extension
@@ -382,11 +413,20 @@ All browser userscripts in this repository MUST follow these rules exactly.
 - [ ] FFmpeg path requirements not automatically validated
 
 ### Discrepancies Found
-- README.md references `reddit_to_libreddit_redirector.user.js` but actual file is `reddit_to_redlib_redirector.user.js`
+- None currently identified
 
 ---
 
 ## Changelog
+
+### 2025-12-29
+- **Added** `browser_extensions/` folder with Image Downloader extension
+  - Native Chrome/Brave/Edge extension replacing the userscript
+  - Batch downloads from selected tabs with popup UI
+  - Perceptual hash deduplication, pause/resume, progress tracking
+- **Removed** `universal_image_downloader.user.js` (superseded by extension)
+- **Added** `browser_extensions/CLAUDE.md` with extension development guidelines
+- **Updated** all documentation to reference the new extension
 
 ### 2025-12-28 (Commit 84fcd5c)
 - **Updated** CLAUDE.md to new standardized format with 8 required sections

@@ -10,6 +10,7 @@ Practical utility scripts for Windows users: automation, media processing, brows
 |--------|-------------|---------|
 | [batch/](batch/) | Windows batch scripts for process management and audio conversion | [README](batch/README.md) |
 | [python/](python/) | Media processing, window management, and file utilities | See subfolder READMEs |
+| [browser_extensions/](browser_extensions/) | Native browser extensions for Chrome/Brave/Edge | [README](browser_extensions/README.md) |
 | [javascript/](javascript/violentmonkey_userscripts/) | Browser userscripts for Violentmonkey/Tampermonkey | [README](javascript/violentmonkey_userscripts/README.md) |
 | [typescript/](typescript/) | React components for markdown rendering | [README](typescript/README.md) |
 
@@ -29,11 +30,13 @@ Practical utility scripts for Windows users: automation, media processing, brows
 - **[HA Dashboard Launcher](python/ha_dashboard_launcher/)** - Home Assistant in a native window
 - **[List Files](python/create_list_of_filenames/)** - Generate hierarchical file listings
 
+### Browser Extensions
+- **[Image Downloader](browser_extensions/image-downloader-extension/)** - Batch download images from tabs
+
 ### Browser Userscripts
 - **[Global Short Video Hider](javascript/violentmonkey_userscripts/global_short_video_hider.user.js)** - Hide videos under 60s
 - **[Page Hopper](javascript/violentmonkey_userscripts/page_hopper.user.js)** - Navigate pages with `[` and `]`
 - **[Rectangle Link Selector](javascript/violentmonkey_userscripts/rectangle_link_selector.user.js)** - Select links by drawing
-- **[Universal Image Downloader](javascript/violentmonkey_userscripts/universal_image_downloader.user.js)** - Double-click to download
 - **[Reddit to Redlib](javascript/violentmonkey_userscripts/reddit_to_redlib_redirector.user.js)** - Privacy redirect
 
 ### TypeScript
@@ -47,6 +50,7 @@ Practical utility scripts for Windows users: automation, media processing, brows
 |------|-------|
 | **Batch** | Double-click `.bat` file. Some require [FFmpeg](https://ffmpeg.org/download.html). |
 | **Python** | Install [Python 3.7+](https://www.python.org/downloads/), then `pip install` dependencies from each folder's README. |
+| **Extensions** | Enable Developer mode in browser, click "Load unpacked", select extension folder. |
 | **Userscripts** | Install [Violentmonkey](https://violentmonkey.github.io/), click Raw on any `.user.js` file. |
 | **TypeScript** | Copy component into your React project. |
 
