@@ -27,6 +27,42 @@ const Config = {
 };
 
 // =============================================================================
+// DOWNLOAD STATE
+// =============================================================================
+
+const DownloadState = {
+    isRunning: false,
+    isPaused: false,
+    processed: 0,
+    total: 0,
+    success: 0,
+    skipped: 0,
+    duplicates: 0,
+    
+    reset() {
+        this.isRunning = false;
+        this.isPaused = false;
+        this.processed = 0;
+        this.total = 0;
+        this.success = 0;
+        this.skipped = 0;
+        this.duplicates = 0;
+    },
+    
+    getStatus() {
+        return {
+            isRunning: this.isRunning,
+            isPaused: this.isPaused,
+            processed: this.processed,
+            total: this.total,
+            success: this.success,
+            skipped: this.skipped,
+            duplicates: this.duplicates
+        };
+    }
+};
+
+// =============================================================================
 // UTILITIES
 // =============================================================================
 
@@ -565,7 +601,10 @@ const DownloadManager = {
      * @param {boolean} closeTab - Whether to close tab after download
      * @returns {Promise<{success: boolean, reason?: string}>}
      */
-    async downloadFromTab(tabId, closeTab = true) {
+    async downloadFromTab(tabId, options = {}) {
+        const closeTab = options.closeTabs !== undefined ? options.closeTabs : true;
+        const skipDuplicates = options.skipDuplicates !== undefined ? options.skipDuplicates : true;
+        const prefix = options.prefix || '';
         try {
             // Inject content script to find image
             const results = await chrome.scripting.executeScript({
@@ -743,7 +782,7 @@ const DownloadManager = {
 
             // Check URL duplicate before fetching
             await DownloadHistory.load();
-            if (DownloadHistory.isDuplicateUrl(imgUrl)) {
+            if (skipDuplicates && DownloadHistory.isDuplicateUrl(imgUrl)) {
                 Utils.log(`Duplicate URL skipped: ${imgUrl}`);
                 if (closeTab) {
                     await chrome.tabs.remove(tabId);
@@ -766,7 +805,7 @@ const DownloadManager = {
             const perceptualHash = await PerceptualHash.generate(arrayBuffer);
 
             // Check content duplicate
-            if (perceptualHash) {
+            if (skipDuplicates && perceptualHash) {
                 const dupCheck = DownloadHistory.checkDuplicate(imgUrl, perceptualHash);
                 if (dupCheck.isDuplicate && dupCheck.reason === 'content') {
                     Utils.log(`Duplicate content skipped: ${imgUrl}`);
@@ -780,9 +819,21 @@ const DownloadManager = {
             // Create filename
             let filename = Utils.createFilename(imgUrl);
             filename = Utils.updateExtension(filename, mimeType);
+            
+            // Apply prefix if specified
+            if (prefix) {
+                filename = prefix + '_' + filename;
+            }
 
             // Convert to base64 data URL (service workers don't have URL.createObjectURL)
-            const base64 = btoa(String.fromCharCode(...bytes));
+            // Chunk the conversion to avoid call stack overflow on large images
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                const chunk = bytes.subarray(i, i + chunkSize);
+                binary += String.fromCharCode.apply(null, chunk);
+            }
+            const base64 = btoa(binary);
             const dataUrl = `data:${mimeType};base64,${base64}`;
 
             // Download
@@ -819,8 +870,9 @@ const DownloadManager = {
 
     /**
      * Download from all selected (highlighted) tabs.
+     * @param {Object} options - Download options
      */
-    async downloadFromSelectedTabs() {
+    async downloadFromSelectedTabs(options = {}) {
         try {
             const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
             
@@ -830,24 +882,65 @@ const DownloadManager = {
                 return { processed: 0, success: 0, skipped: 0 };
             }
 
-            // If only one tab selected, don't close it
-            const closeTab = tabs.length > 1;
+            // Initialize state
+            DownloadState.reset();
+            DownloadState.isRunning = true;
+            DownloadState.total = tabs.length;
 
-            const results = await Promise.all(
-                tabs.map(tab => this.downloadFromTab(tab.id, closeTab))
-            );
-
-            const stats = {
-                processed: results.length,
-                success: results.filter(r => r.success).length,
-                skipped: results.filter(r => !r.success).length,
-                duplicates: results.filter(r => r.reason?.startsWith('duplicate')).length
+            // If only one tab selected and closeTabs is true, still don't auto-close single tab
+            const effectiveOptions = {
+                ...options,
+                closeTabs: tabs.length > 1 ? options.closeTabs : false
             };
 
+            const interval = options.interval || 100;
+
+            // Process tabs sequentially with interval to prevent freezing
+            for (let i = 0; i < tabs.length; i++) {
+                // Check if paused - wait until resumed or cancelled
+                while (DownloadState.isPaused && DownloadState.isRunning) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+                // Check if cancelled
+                if (!DownloadState.isRunning) {
+                    Utils.log('Download cancelled');
+                    break;
+                }
+
+                const result = await this.downloadFromTab(tabs[i].id, effectiveOptions);
+                
+                // Update state
+                DownloadState.processed++;
+                if (result.success) {
+                    DownloadState.success++;
+                } else {
+                    DownloadState.skipped++;
+                    if (result.reason?.startsWith('duplicate')) {
+                        DownloadState.duplicates++;
+                    }
+                }
+
+                // Wait before next download (but not after the last one)
+                if (interval > 0 && i < tabs.length - 1 && DownloadState.isRunning) {
+                    await new Promise(resolve => setTimeout(resolve, interval));
+                }
+            }
+
+            const stats = {
+                processed: DownloadState.processed,
+                success: DownloadState.success,
+                skipped: DownloadState.skipped,
+                duplicates: DownloadState.duplicates,
+                cancelled: !DownloadState.isRunning && DownloadState.processed < DownloadState.total
+            };
+
+            DownloadState.reset();
             Utils.log('Batch complete:', stats);
             return stats;
 
         } catch (error) {
+            DownloadState.reset();
             Utils.log('Error processing selected tabs:', error);
             return { processed: 0, success: 0, skipped: 0, error: error.message };
         }
@@ -855,8 +948,9 @@ const DownloadManager = {
 
     /**
      * Download from current active tab only.
+     * @param {Object} options - Download options
      */
-    async downloadFromCurrentTab() {
+    async downloadFromCurrentTab(options = {}) {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab) {
@@ -864,7 +958,13 @@ const DownloadManager = {
                 return { success: false, reason: 'no_tab' };
             }
 
-            return await this.downloadFromTab(tab.id, false);
+            // For current tab, default to not closing
+            const effectiveOptions = {
+                ...options,
+                closeTabs: false
+            };
+
+            return await this.downloadFromTab(tab.id, effectiveOptions);
 
         } catch (error) {
             Utils.log('Error downloading from current tab:', error);
@@ -877,21 +977,71 @@ const DownloadManager = {
 // EVENT LISTENERS
 // =============================================================================
 
+// Helper to get options from storage
+async function getStoredOptions() {
+    try {
+        const result = await chrome.storage.local.get(['closeTabs', 'skipDuplicates', 'interval', 'prefix']);
+        return {
+            closeTabs: result.closeTabs !== undefined ? result.closeTabs : true,
+            skipDuplicates: result.skipDuplicates !== undefined ? result.skipDuplicates : true,
+            interval: result.interval !== undefined ? result.interval : 500,
+            prefix: result.prefix || ''
+        };
+    } catch {
+        return { closeTabs: true, skipDuplicates: true, interval: 500, prefix: '' };
+    }
+}
+
+// Handle messages from popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    Utils.log('Message received:', message.action);
+
+    (async () => {
+        try {
+            if (message.action === 'download-selected-tabs') {
+                const result = await DownloadManager.downloadFromSelectedTabs(message.options);
+                sendResponse(result);
+            } else if (message.action === 'download-current-tab') {
+                const result = await DownloadManager.downloadFromCurrentTab(message.options);
+                sendResponse(result);
+            } else if (message.action === 'pause') {
+                DownloadState.isPaused = true;
+                Utils.log('Download paused');
+                sendResponse({ success: true, status: DownloadState.getStatus() });
+            } else if (message.action === 'resume') {
+                DownloadState.isPaused = false;
+                Utils.log('Download resumed');
+                sendResponse({ success: true, status: DownloadState.getStatus() });
+            } else if (message.action === 'cancel') {
+                DownloadState.isRunning = false;
+                DownloadState.isPaused = false;
+                Utils.log('Download cancelled');
+                sendResponse({ success: true, status: DownloadState.getStatus() });
+            } else if (message.action === 'get-status') {
+                sendResponse(DownloadState.getStatus());
+            } else {
+                sendResponse({ error: 'Unknown action' });
+            }
+        } catch (error) {
+            Utils.log('Message handler error:', error);
+            sendResponse({ error: error.message });
+        }
+    })();
+
+    return true; // Keep channel open for async response
+});
+
 // Handle keyboard shortcuts
 chrome.commands.onCommand.addListener(async (command) => {
     Utils.log(`Command received: ${command}`);
 
-    if (command === 'download-selected-tabs') {
-        await DownloadManager.downloadFromSelectedTabs();
-    } else if (command === 'download-current-tab') {
-        await DownloadManager.downloadFromCurrentTab();
-    }
-});
+    const options = await getStoredOptions();
 
-// Handle extension icon click (same as download-selected-tabs)
-chrome.action.onClicked.addListener(async () => {
-    Utils.log('Extension icon clicked');
-    await DownloadManager.downloadFromSelectedTabs();
+    if (command === 'download-selected-tabs') {
+        await DownloadManager.downloadFromSelectedTabs(options);
+    } else if (command === 'download-current-tab') {
+        await DownloadManager.downloadFromCurrentTab(options);
+    }
 });
 
 // Initialize on install/update

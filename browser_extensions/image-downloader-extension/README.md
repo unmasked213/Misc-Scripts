@@ -1,66 +1,65 @@
 # Image Downloader Extension
 
-Download images from selected browser tabs with a single keyboard shortcut.
+Download images from selected browser tabs with keyboard shortcuts or a popup UI.
 
 ## Features
 
 - Download images from all selected tabs at once
+- Popup UI with options for close behavior and duplicate handling
 - Perceptual hash deduplication (catches renamed/resized duplicates)
 - URL-based deduplication
 - Automatic MIME type detection and extension correction
 - Timestamped filenames
-- Automatic tab closing after download
+- Configurable tab closing after download
 
 ## Installation
 
 1. Unzip the extension folder
-2. Open Chrome and go to `chrome://extensions/`
+2. Open Chrome/Brave and go to `chrome://extensions/` or `brave://extensions/`
 3. Enable "Developer mode" (toggle in top right)
 4. Click "Load unpacked"
 5. Select the `image-downloader-extension` folder
 
 ## Usage
 
-### Download from selected tabs (Ctrl+Shift+S)
+### Popup UI (click extension icon)
 
-1. Open multiple image tabs
-2. Select tabs by Ctrl+clicking them in the tab bar
-3. Press **Ctrl+Shift+S**
-4. All selected tabs download their primary image and close
+Click the extension icon to open the popup with:
 
-### Download from current tab (Ctrl+Shift+D)
+- **Download Selected Tabs** - Downloads images from all highlighted tabs
+- **Download Current Tab** - Downloads image from the active tab only
+- **Close tabs after download** - Toggle whether to close tabs after downloading
+- **Skip duplicates** - Toggle duplicate detection
 
-1. Navigate to a page with an image
-2. Press **Ctrl+Shift+D**
-3. Downloads the image without closing the tab
-
-### Click the extension icon
-
-Same as Ctrl+Shift+S - downloads from all selected tabs.
-
-## Keyboard Shortcuts
+### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+Shift+S | Download from all selected tabs (closes tabs) |
-| Ctrl+Shift+D | Download from current tab (stays open) |
+| Alt+Shift+S | Download from all selected tabs |
+| Alt+Shift+D | Download from current tab |
 
-You can customize these in `chrome://extensions/shortcuts`
+Customize shortcuts at `chrome://extensions/shortcuts` or `brave://extensions/shortcuts`
 
-## How Tab Selection Works
+### Tab Selection
 
 - **Single tab**: Click on a tab
 - **Multiple tabs**: Ctrl+click to add individual tabs
 - **Range of tabs**: Click first tab, Shift+click last tab
-- **All tabs**: Ctrl+A (when tab bar focused)
+
+## Macro Setup (GHUB etc.)
+
+The keyboard shortcuts are designed to avoid conflicts with browser defaults. Set your macro to send:
+
+- `Alt+Shift+S` for batch download of selected tabs
+- `Alt+Shift+D` for single tab download
 
 ## Configuration
 
-Edit `background.js` to modify:
+Edit `background.js` to modify default behavior:
 
 ```javascript
 const Config = {
-    closeTabAfterDownload: true,      // Auto-close tabs after download
+    closeTabAfterDownload: true,      // Default close behavior
     useTimestampInFilename: true,     // Prefix filenames with timestamp
     
     deduplication: {
@@ -78,7 +77,7 @@ const Config = {
 
 ## Notes
 
-- If only one tab is selected, it won't close after download
-- Duplicate images (by URL or content) are skipped automatically
+- Single tab selection won't auto-close (prevents closing your only tab)
+- Duplicate images (by URL or content) are skipped when enabled
 - Works on direct image URLs and pages containing images
 - Finds the largest/highest quality image on each page
