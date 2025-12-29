@@ -10,6 +10,9 @@ const intervalInput = document.getElementById('interval');
 const intervalUpBtn = document.getElementById('interval-up');
 const intervalDownBtn = document.getElementById('interval-down');
 const prefixInput = document.getElementById('prefix');
+const prefixWrapper = document.getElementById('prefix-wrapper');
+const actionArea = document.getElementById('action-area');
+const headerEl = document.querySelector('.header');
 const statusEl = document.getElementById('status');
 const tabCountEl = document.getElementById('tab-count');
 const tabPluralEl = document.getElementById('tab-plural');
@@ -19,6 +22,15 @@ const progressTextEl = document.getElementById('progress-text');
 const progressDupesEl = document.getElementById('progress-dupes');
 const pauseBtn = document.getElementById('pause-btn');
 const cancelBtn = document.getElementById('cancel-btn');
+
+// Update floating label state for prefix input
+function updatePrefixLabelState() {
+    if (prefixInput.value.trim()) {
+        prefixWrapper.classList.add('has-value');
+    } else {
+        prefixWrapper.classList.remove('has-value');
+    }
+}
 
 // State
 let isPaused = false;
@@ -36,14 +48,22 @@ async function loadSettings() {
             skipDuplicatesToggle.checked = result.skipDuplicates;
         }
         if (result.interval !== undefined) {
-            intervalInput.value = result.interval;
+            // Convert ms to seconds for display
+            intervalInput.value = (result.interval / 1000).toFixed(1);
         }
         if (result.prefix !== undefined) {
             prefixInput.value = result.prefix;
+            updatePrefixLabelState();
         }
     } catch (error) {
         console.error('Error loading settings:', error);
     }
+}
+
+// Get interval in milliseconds from the seconds input
+function getIntervalMs() {
+    const seconds = parseFloat(intervalInput.value) || 0.5;
+    return Math.max(100, Math.round(seconds * 1000));
 }
 
 // Save settings when changed
@@ -52,7 +72,7 @@ async function saveSettings() {
         await chrome.storage.local.set({
             closeTabs: closeTabsToggle.checked,
             skipDuplicates: skipDuplicatesToggle.checked,
-            interval: Math.max(100, parseInt(intervalInput.value) || 500),
+            interval: getIntervalMs(),
             prefix: prefixInput.value.trim()
         });
     } catch (error) {
@@ -81,11 +101,11 @@ function showStatus(message, type = '') {
     statusEl.style.display = 'flex';
 }
 
-// Show/hide progress UI
+// Show/hide progress UI (crossfade between button and progress)
 function showProgress(show) {
-    progressEl.classList.toggle('progress--visible', show);
+    actionArea.classList.toggle('action-area--active', show);
+    headerEl.classList.toggle('header--hidden', show);
     statusEl.style.display = show ? 'none' : 'flex';
-    downloadSelectedBtn.disabled = show;
 }
 
 // Update progress display
@@ -130,17 +150,16 @@ function stopPolling() {
 
 // Download from selected tabs
 async function downloadSelected() {
-    downloadSelectedBtn.disabled = true;
     isPaused = false;
-    
+
     // Get tab count for progress
     const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
     if (tabs.length === 0) {
         showStatus('No tabs selected', 'error');
-        downloadSelectedBtn.disabled = false;
+        showProgress(true); // Show the error in progress area
         return;
     }
-    
+
     // Show progress UI
     showProgress(true);
     updateProgress(0, tabs.length, false);
@@ -152,13 +171,12 @@ async function downloadSelected() {
             options: {
                 closeTabs: closeTabsToggle.checked,
                 skipDuplicates: skipDuplicatesToggle.checked,
-                interval: Math.max(100, parseInt(intervalInput.value) || 500),
+                interval: getIntervalMs(),
                 prefix: prefixInput.value.trim()
             }
         });
 
         stopPolling();
-        showProgress(false);
 
         if (response.error) {
             showStatus(response.error, 'error');
@@ -171,15 +189,14 @@ async function downloadSelected() {
             showStatus(msg, success > 0 ? 'success' : '');
         }
 
+        showProgress(false);
         await updateTabCount();
 
     } catch (error) {
         stopPolling();
-        showProgress(false);
         showStatus('Error: ' + error.message, 'error');
+        showProgress(false);
     }
-
-    downloadSelectedBtn.disabled = false;
 }
 
 // Pause/Resume toggle
@@ -203,29 +220,28 @@ async function cancelDownload() {
     try {
         await chrome.runtime.sendMessage({ action: 'cancel' });
         stopPolling();
-        showProgress(false);
         showStatus('Cancelled', '');
-        downloadSelectedBtn.disabled = false;
+        showProgress(false);
         await updateTabCount();
     } catch (error) {
         console.error('Error cancelling:', error);
     }
 }
 
-// Interval button handlers
+// Interval button handlers (values in seconds)
 function incrementInterval() {
-    const current = parseInt(intervalInput.value) || 500;
-    const step = parseInt(intervalInput.step) || 100;
-    const max = parseInt(intervalInput.max) || 10000;
-    intervalInput.value = Math.min(current + step, max);
+    const current = parseFloat(intervalInput.value) || 0.5;
+    const step = parseFloat(intervalInput.step) || 0.1;
+    const max = parseFloat(intervalInput.max) || 10;
+    intervalInput.value = Math.min(current + step, max).toFixed(1);
     saveSettings();
 }
 
 function decrementInterval() {
-    const current = parseInt(intervalInput.value) || 500;
-    const step = parseInt(intervalInput.step) || 100;
-    const min = parseInt(intervalInput.min) || 100;
-    intervalInput.value = Math.max(current - step, min);
+    const current = parseFloat(intervalInput.value) || 0.5;
+    const step = parseFloat(intervalInput.step) || 0.1;
+    const min = parseFloat(intervalInput.min) || 0.1;
+    intervalInput.value = Math.max(current - step, min).toFixed(1);
     saveSettings();
 }
 
@@ -254,6 +270,7 @@ intervalInput.addEventListener('change', saveSettings);
 intervalUpBtn.addEventListener('click', incrementInterval);
 intervalDownBtn.addEventListener('click', decrementInterval);
 prefixInput.addEventListener('change', saveSettings);
+prefixInput.addEventListener('input', updatePrefixLabelState);
 
 // Initialize
 loadSettings();
