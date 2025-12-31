@@ -10,6 +10,8 @@
 (function() {
     'use strict';
 
+    console.log('[MediaDownloader:bridge] Script loading at', new Date().toISOString());
+
     // Check if extension context is still valid
     function isExtensionValid() {
         try {
@@ -49,6 +51,21 @@
             eventType
         } = detail;
 
+        // Handle play-event-signal (no URL, just signals that play occurred)
+        // This enables network-after-play correlation in background.js
+        if (source === 'play-event-signal') {
+            safeSendMessage({
+                action: 'video-intercepted',
+                url: null,
+                source: 'play-event-signal',
+                tabUrl: tabUrl || window.location.href,
+                elementIdHash: elementIdHash,
+                eventType: eventType,
+                observedAt: observedAt || Date.now()
+            });
+            return;
+        }
+
         // Handle blob detection (MSE in use)
         if (isBlob) {
             safeSendMessage({
@@ -56,6 +73,7 @@
                 tabUrl: tabUrl || window.location.href,
                 duration,
                 dimensions,
+                elementIdHash: elementIdHash,
                 observedAt: observedAt || Date.now()
             });
             return;
@@ -89,6 +107,64 @@
         });
     });
 
+    // Track elements with pending delayed polls in bridge (backup for intercept.js)
+    const pendingBridgePolls = new WeakSet();
+
+    /**
+     * Start delayed polling for currentSrc in bridge.js (backup detection)
+     * This is a secondary fallback if intercept.js doesn't fire for some reason.
+     */
+    function startBridgeDelayedConfirmation(video, eventType) {
+        if (pendingBridgePolls.has(video)) return;
+        pendingBridgePolls.add(video);
+
+        const startTime = Date.now();
+        const maxDuration = 1500;
+        const pollInterval = 250;
+
+        // Send play-event-signal for network-after-play correlation
+        safeSendMessage({
+            action: 'video-intercepted',
+            url: null,
+            source: 'play-event-signal',
+            tabUrl: window.location.href,
+            observedAt: Date.now(),
+            eventType: eventType
+        });
+
+        function poll() {
+            const url = video.currentSrc || video.src;
+
+            if (url && url.startsWith('http')) {
+                pendingBridgePolls.delete(video);
+                safeSendMessage({
+                    action: 'video-intercepted',
+                    url: url,
+                    source: 'bridge-delayed-confirm',
+                    tabUrl: window.location.href,
+                    isStream: false,
+                    isCandidate: false,
+                    duration: (video.duration && isFinite(video.duration)) ? video.duration : null,
+                    dimensions: (video.videoWidth && video.videoHeight)
+                        ? `${video.videoWidth}×${video.videoHeight}` : null,
+                    observedAt: Date.now(),
+                    eventType: eventType,
+                    delayedMs: Date.now() - startTime
+                });
+                return;
+            }
+
+            if (Date.now() - startTime >= maxDuration) {
+                pendingBridgePolls.delete(video);
+                return;
+            }
+
+            setTimeout(poll, pollInterval);
+        }
+
+        setTimeout(poll, pollInterval);
+    }
+
     // Also watch for video play events directly (backup detection)
     // This catches cases where intercept.js might miss something
     function onVideoPlay(event) {
@@ -107,6 +183,8 @@
                     ? `${video.videoWidth}×${video.videoHeight}` : null,
                 observedAt: Date.now()
             });
+            // Still try delayed confirmation - real URL might appear
+            startBridgeDelayedConfirmation(video, event.type);
             return;
         }
 
@@ -124,6 +202,9 @@
                 observedAt: Date.now(),
                 eventType: event.type
             });
+        } else {
+            // No valid URL yet - start delayed confirmation
+            startBridgeDelayedConfirmation(video, event.type);
         }
     }
 
@@ -132,6 +213,7 @@
     document.addEventListener('playing', onVideoPlay, true);
     document.addEventListener('loadeddata', onVideoPlay, true);
     document.addEventListener('loadedmetadata', onVideoPlay, true);
+    document.addEventListener('canplay', onVideoPlay, true);
 
-    // console.log('[MediaDownloader] Bridge script loaded');
+    console.log('[MediaDownloader:bridge] ✓ Bridge script loaded and listening');
 })();

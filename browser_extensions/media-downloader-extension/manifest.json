@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Media Downloader",
-  "version": "1.4",
+  "version": "1.5",
   "description": "Download images and videos from selected tabs",
   "permissions": [
     "tabs",
@@ -10,6 +10,7 @@
     "activeTab",
     "scripting",
     "webRequest",
+    "webNavigation",
     "offscreen"
   ],
   "host_permissions": [

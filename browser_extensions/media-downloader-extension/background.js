@@ -221,6 +221,7 @@ class VideoRecord {
         return {
             id: this.id,
             url: this.url,
+            tabId: this.tabId,  // Include tabId for download context
             state: this.state,
             source: this.source,
             contentType: this.contentType,
@@ -385,6 +386,73 @@ const CapturedVideos = {
 };
 
 // =============================================================================
+// PLAY EVENT TRACKING - For network-after-play correlation
+// =============================================================================
+
+/**
+ * Track last play event timestamp per tab
+ * This enables the network-after-play fallback for players that never expose DOM URLs
+ */
+const PlayEventTracker = {
+    // Map<tabId, { timestamp: number, elementIdHash: string }>
+    lastPlayByTab: new Map(),
+
+    // Window for network-after-play correlation (2 seconds)
+    correlationWindowMs: 2000,
+
+    // Track which candidates have been promoted in each play window
+    // Map<tabId, Set<url>>
+    promotedInWindow: new Map(),
+
+    recordPlayEvent(tabId, elementIdHash) {
+        const timestamp = Date.now();
+        this.lastPlayByTab.set(tabId, { timestamp, elementIdHash });
+        // Clear promoted URLs for this tab (new play window)
+        this.promotedInWindow.set(tabId, new Set());
+        debugLog(`Play event recorded for tab ${tabId}, elementId: ${elementIdHash}`);
+    },
+
+    /**
+     * Check if a network request qualifies for network-after-play promotion
+     * Returns true if:
+     * - A play event occurred within the correlation window
+     * - No URL has been promoted in this play window yet (at most one per play)
+     */
+    shouldPromoteNetworkRequest(tabId, url) {
+        const playData = this.lastPlayByTab.get(tabId);
+        if (!playData) {
+            return { should: false, reason: 'no-play-event' };
+        }
+
+        const elapsed = Date.now() - playData.timestamp;
+        if (elapsed > this.correlationWindowMs) {
+            return { should: false, reason: 'outside-window', elapsed };
+        }
+
+        // Check if we already promoted a URL in this window
+        const promoted = this.promotedInWindow.get(tabId);
+        if (promoted && promoted.size > 0) {
+            return { should: false, reason: 'already-promoted-in-window' };
+        }
+
+        return { should: true, elapsed, elementIdHash: playData.elementIdHash };
+    },
+
+    markPromoted(tabId, url) {
+        if (!this.promotedInWindow.has(tabId)) {
+            this.promotedInWindow.set(tabId, new Set());
+        }
+        this.promotedInWindow.get(tabId).add(url);
+        debugLog(`Marked URL as promoted via network-after-play: ${url.substring(0, 60)}...`);
+    },
+
+    clearTab(tabId) {
+        this.lastPlayByTab.delete(tabId);
+        this.promotedInWindow.delete(tabId);
+    }
+};
+
+// =============================================================================
 // VALIDATION - Header probing for progressive MP4
 // =============================================================================
 
@@ -502,14 +570,14 @@ async function validateProgressiveVideo(record) {
 // =============================================================================
 
 /**
- * Download progressive MP4 using chrome.downloads.download
- * This preserves cookies, referer, and handles Range requests properly
+ * Download progressive MP4 using chrome.downloads API directly.
  *
- * IMPORTANT: We use the original URL, NOT a blob, to leverage browser's
- * native download handling which preserves HTTP semantics.
+ * This is the simplest and most reliable method - the browser handles
+ * cookies and authentication for the video's domain automatically.
  */
 async function downloadProgressiveVideo(record, options = {}) {
     const url = record.url;
+    const tabId = record.tabId;
     const prefix = options.prefix || '';
 
     let filename = record.getFilename();
@@ -519,10 +587,13 @@ async function downloadProgressiveVideo(record, options = {}) {
 
     debugLog(`Downloading progressive video: ${filename}`);
     debugLog(`URL: ${url.substring(0, 100)}...`);
+    debugLog(`TabId: ${tabId}`);
 
+    // Use chrome.downloads directly - it handles cookies for the video's domain
     try {
-        // Primary method: chrome.downloads.download with original URL
-        // This preserves cookies and allows proper streaming/range behavior
+        debugLog('Starting download via chrome.downloads...');
+        debugLog(`Download URL (full): ${url}`);
+
         const downloadId = await chrome.downloads.download({
             url: url,
             filename: filename,
@@ -530,38 +601,35 @@ async function downloadProgressiveVideo(record, options = {}) {
             saveAs: false
         });
 
-        debugLog(`Download started via chrome.downloads: ID=${downloadId}, filename=${filename}`);
+        debugLog(`Download started: ID=${downloadId}, filename=${filename}`);
+
+        // Monitor the download to check if content type is correct
+        setTimeout(async () => {
+            try {
+                const [item] = await chrome.downloads.search({ id: downloadId });
+                if (item) {
+                    debugLog(`Download status: state=${item.state}, totalBytes=${item.totalBytes}, mime=${item.mime}`);
+                    if (item.mime && item.mime.includes('text/html')) {
+                        debugLog('WARNING: Downloaded content appears to be HTML, not video - server may require special auth');
+                    }
+                }
+            } catch (e) {
+                // Ignore check errors
+            }
+        }, 2000);
 
         return {
             success: true,
             downloadId: downloadId,
-            method: 'chrome.downloads'
+            filename: filename,
+            method: 'chrome-downloads'
         };
 
     } catch (downloadError) {
-        debugLog(`chrome.downloads.download failed: ${downloadError.message}`);
+        debugLog(`chrome.downloads failed: ${downloadError.message}`);
 
-        // Check if it's a permission/access error
-        if (downloadError.message.includes('not allowed') ||
-            downloadError.message.includes('permission')) {
-
-            // Fallback: Open in new tab for manual save
-            // User can right-click > Save video as...
-            debugLog('Attempting fallback: open in new tab');
-
-            return {
-                success: false,
-                method: 'fallback_needed',
-                error: downloadError.message,
-                fallbackUrl: url,
-                message: 'Extension cannot download directly. Open the URL in a new tab and use right-click > Save video as...'
-            };
-        }
-
-        // For other errors, report failure
         return {
             success: false,
-            method: 'failed',
             error: downloadError.message
         };
     }
@@ -573,49 +641,116 @@ async function downloadProgressiveVideo(record, options = {}) {
 
 /**
  * Fetch a preview snippet of video for popup playback
- * Uses Range header to get first N bytes, creates blob URL via offscreen doc
+ * Uses XHR in page context for better cookie handling
  */
-async function fetchPreviewSnippet(url, maxBytes = Config.preview.defaultBytes) {
+async function fetchPreviewSnippet(url, tabId, maxBytes = Config.preview.defaultBytes) {
     debugLog(`Fetching preview snippet: ${maxBytes} bytes from ${url.substring(0, 60)}...`);
+    debugLog(`Preview tabId: ${tabId}`);
 
     // Cap at maximum
     const bytes = Math.min(maxBytes, Config.preview.maxBytes);
 
-    try {
-        const response = await fetch(url, {
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-                'Range': `bytes=0-${bytes - 1}`
-            },
-            signal: AbortSignal.timeout(30000)  // 30 second timeout
-        });
+    // Try fetching from page context using XHR (has cookies/auth)
+    if (tabId && tabId > 0) {
+        try {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                world: 'MAIN',
+                func: (videoUrl, maxBytes) => {
+                    return new Promise((resolve) => {
+                        console.log('[MediaDownloader] Fetching preview via XHR:', videoUrl);
 
-        if (!response.ok && response.status !== 206) {
-            return { error: `HTTP ${response.status}` };
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('GET', videoUrl, true);
+                        xhr.responseType = 'blob';
+                        xhr.withCredentials = true;
+
+                        // Request only a range for preview
+                        xhr.setRequestHeader('Range', `bytes=0-${maxBytes - 1}`);
+
+                        xhr.onload = function() {
+                            console.log('[MediaDownloader] Preview XHR status:', xhr.status);
+
+                            if (xhr.status >= 200 && xhr.status < 300 || xhr.status === 206) {
+                                const blob = xhr.response;
+                                const contentType = xhr.getResponseHeader('content-type') || 'video/mp4';
+
+                                // Check if response is HTML (error page) instead of video
+                                if (contentType.includes('text/html')) {
+                                    console.log('[MediaDownloader] Preview got HTML instead of video');
+                                    resolve({ error: 'Got HTML instead of video', isCrossOrigin: true });
+                                    return;
+                                }
+
+                                // Slice if larger than requested
+                                const previewBlob = blob.size > maxBytes ? blob.slice(0, maxBytes, contentType) : blob;
+
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    const base64 = reader.result.split(',')[1];
+                                    console.log('[MediaDownloader] Preview fetched, size:', previewBlob.size);
+                                    resolve({
+                                        success: true,
+                                        base64: base64,
+                                        contentType: contentType,
+                                        size: previewBlob.size
+                                    });
+                                };
+                                reader.onerror = () => {
+                                    resolve({ error: 'Failed to read blob' });
+                                };
+                                reader.readAsDataURL(previewBlob);
+                            } else {
+                                console.error('[MediaDownloader] Preview XHR error:', xhr.status);
+                                resolve({ error: `HTTP ${xhr.status}`, isCrossOrigin: xhr.status === 0 });
+                            }
+                        };
+
+                        xhr.onerror = function() {
+                            console.error('[MediaDownloader] Preview XHR network error (likely CORS)');
+                            resolve({ error: 'Preview blocked (CORS)', isCrossOrigin: true });
+                        };
+
+                        xhr.ontimeout = function() {
+                            resolve({ error: 'Preview timeout' });
+                        };
+
+                        xhr.timeout = 30000; // 30 second timeout for preview
+                        xhr.send();
+                    });
+                },
+                args: [url, bytes]
+            });
+
+            const result = results?.[0]?.result;
+
+            if (result?.success && result.base64) {
+                debugLog(`Preview fetched via XHR: ${result.size} bytes`);
+                return result;
+            } else {
+                debugLog(`Preview XHR failed: ${result?.error || 'unknown'}`);
+                return {
+                    error: result?.error || 'Preview unavailable (auth required)',
+                    isCrossOrigin: result?.isCrossOrigin || false
+                };
+            }
+        } catch (scriptError) {
+            debugLog(`Preview script injection failed: ${scriptError.message}`);
+            return {
+                error: 'Preview unavailable',
+                isCrossOrigin: true
+            };
         }
-
-        const contentType = response.headers.get('content-type') || 'video/mp4';
-        const buffer = await response.arrayBuffer();
-
-        debugLog(`Preview snippet fetched: ${buffer.byteLength} bytes`);
-
-        // Return buffer and type - popup will create blob URL
-        return {
-            success: true,
-            buffer: buffer,
-            contentType: contentType,
-            size: buffer.byteLength
-        };
-
-    } catch (error) {
-        debugLog(`Preview snippet fetch failed: ${error.message}`);
-        return { error: error.message };
     }
+
+    return {
+        error: 'No tab context for preview',
+        isCrossOrigin: true
+    };
 }
 
 // =============================================================================
-// NETWORK REQUEST LISTENER - Capture candidates only
+// NETWORK REQUEST LISTENER - Capture candidates with network-after-play fallback
 // =============================================================================
 
 chrome.webRequest.onCompleted.addListener(
@@ -632,8 +767,66 @@ chrome.webRequest.onCompleted.addListener(
         )?.value;
 
         if (CapturedVideos.isVideoRequest(details.url, contentType)) {
-            // Only add as candidate - won't show in UI until play event confirms it
-            CapturedVideos.addCandidate(details.tabId, details.url, contentType, contentLength);
+            const url = details.url;
+            const tabId = details.tabId;
+
+            // Check if this is a segment (not standalone video)
+            const isSegment = CapturedVideos.segmentPatterns.some(p => p.test(url));
+            if (isSegment) {
+                debugLog(`Skipping segment: ${url.substring(0, 60)}...`);
+                return;
+            }
+
+            // Check if this is a stream manifest
+            const isStream = CapturedVideos.isStreamManifest(url, contentType);
+            if (isStream) {
+                // Streams are handled separately, just add as candidate
+                CapturedVideos.addCandidate(tabId, url, contentType, contentLength);
+                return;
+            }
+
+            // Check if we already have this URL confirmed or actionable
+            const existing = CapturedVideos.getByUrl(tabId, url);
+            if (existing && (existing.state === VideoState.CONFIRMED ||
+                            existing.state === VideoState.VALIDATED ||
+                            existing.state === VideoState.ACTIONABLE)) {
+                debugLog(`Already confirmed/actionable: ${url.substring(0, 60)}...`);
+                return;
+            }
+
+            // Add as candidate first
+            const record = CapturedVideos.addCandidate(tabId, url, contentType, contentLength);
+            if (!record) return;
+
+            // NETWORK-AFTER-PLAY FALLBACK:
+            // Check if this request occurred shortly after a play event
+            // If so, promote it to confirmed (player never exposed DOM URL)
+            const promotionCheck = PlayEventTracker.shouldPromoteNetworkRequest(tabId, url);
+
+            if (promotionCheck.should) {
+                debugLog(`Network-after-play promotion: ${url.substring(0, 60)}... (${promotionCheck.elapsed}ms after play)`);
+
+                // Promote to confirmed and immediately to actionable
+                // Skip validation - if we saw it after play, it's valid
+                const playEventData = {
+                    source: 'network-after-play',
+                    timestamp: Date.now(),
+                    elementIdHash: promotionCheck.elementIdHash
+                };
+
+                record.confirm(playEventData);
+                PlayEventTracker.markPromoted(tabId, url);
+
+                // Skip validation, mark as actionable directly
+                if (!record.isStream) {
+                    record.state = VideoState.ACTIONABLE;
+                    record.validatedAt = Date.now();
+                    debugLog(`Video actionable (network-after-play): ${url.substring(0, 60)}...`);
+                    updateBadgeForTab(tabId);
+                }
+            } else {
+                debugLog(`Candidate added (no promotion): ${url.substring(0, 60)}... reason: ${promotionCheck.reason}`);
+            }
         }
     },
     { urls: ['<all_urls>'] },
@@ -643,6 +836,48 @@ chrome.webRequest.onCompleted.addListener(
 // Clean up when tabs close
 chrome.tabs.onRemoved.addListener((tabId) => {
     CapturedVideos.clearTab(tabId);
+    PlayEventTracker.clearTab(tabId);
+});
+
+// =============================================================================
+// BADGE MANAGEMENT - Show video count on extension icon
+// =============================================================================
+
+/**
+ * Update the badge for a specific tab showing actionable video count
+ */
+function updateBadgeForTab(tabId) {
+    const actionable = CapturedVideos.getActionableForTab(tabId);
+    const count = actionable.length;
+
+    if (count > 0) {
+        chrome.action.setBadgeText({ tabId, text: String(count) });
+        chrome.action.setBadgeBackgroundColor({ tabId, color: '#4CAF50' }); // Green
+    } else {
+        chrome.action.setBadgeText({ tabId, text: '' });
+    }
+
+    debugLog(`Badge updated for tab ${tabId}: ${count} videos`);
+}
+
+/**
+ * Clear badge for a tab
+ */
+function clearBadgeForTab(tabId) {
+    chrome.action.setBadgeText({ tabId, text: '' });
+}
+
+// Update badge when tab becomes active
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+    updateBadgeForTab(tabId);
+});
+
+// Clear badge when navigating to new page
+chrome.webNavigation.onCommitted.addListener((details) => {
+    if (details.frameId === 0) { // Main frame only
+        CapturedVideos.clearTab(details.tabId);
+        clearBadgeForTab(details.tabId);
+    }
 });
 
 // =============================================================================
@@ -651,57 +886,90 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // Handle intercepted videos and play events from content scripts
 chrome.runtime.onMessage.addListener((message, sender) => {
-    if (message.action === 'video-intercepted' && sender.tab?.id) {
-        const tabId = sender.tab.id;
-        const url = message.url;
+    try {
+        if (message.action === 'video-intercepted' && sender.tab?.id) {
+            const tabId = sender.tab.id;
+            const url = message.url;
 
-        if (!url || url.startsWith('blob:')) return;
-
-        // Normalize relative URLs
-        let absoluteUrl = url;
-        if (!url.startsWith('http')) {
-            try {
-                absoluteUrl = new URL(url, message.tabUrl).href;
-            } catch (e) {
+            // Handle play-event-signal (no URL, just signals that play occurred)
+            // This is sent by intercept.js when starting delayed confirmation
+            if (message.source === 'play-event-signal') {
+                debugLog(`Play event signal received for tab ${tabId}, elementId: ${message.elementIdHash}`);
+                PlayEventTracker.recordPlayEvent(tabId, message.elementIdHash);
                 return;
             }
-        }
 
-        if (absoluteUrl && CapturedVideos.isVideoRequest(absoluteUrl, null)) {
-            // Determine if this is from a play event
-            const isPlayEvent = message.source?.includes('video-') ||
-                                message.source === 'play-event' ||
-                                message.source?.includes('loadeddata') ||
-                                message.source?.includes('playing');
+            if (!url || url.startsWith('blob:')) return;
 
-            if (isPlayEvent) {
-                // This is a confirmed play event - promote to confirmed and validate
-                const playEventData = {
-                    source: message.source,
-                    timestamp: message.observedAt || Date.now(),
-                    elementIdHash: message.elementIdHash,
-                    duration: message.duration,
-                    dimensions: message.dimensions
-                };
-
-                const record = CapturedVideos.confirmVideo(tabId, absoluteUrl, playEventData);
-
-                // Validate progressive videos immediately
-                if (record && !record.isStream && record.state === VideoState.CONFIRMED) {
-                    validateProgressiveVideo(record).catch(err => {
-                        debugLog(`Background validation error: ${err.message}`);
-                    });
+            // Normalize relative URLs
+            let absoluteUrl = url;
+            if (!url.startsWith('http')) {
+                try {
+                    absoluteUrl = new URL(url, message.tabUrl).href;
+                } catch (e) {
+                    return;
                 }
-            } else {
-                // Just a network interception - add as candidate only
-                CapturedVideos.addCandidate(tabId, absoluteUrl, null, null);
+            }
+
+            const isVideo = CapturedVideos.isVideoRequest(absoluteUrl, null);
+            debugLog(`isVideoRequest check: ${absoluteUrl?.substring(0, 60)}... = ${isVideo}`);
+
+            if (absoluteUrl && isVideo) {
+                // Determine if this is from a play event
+                const isPlayEvent = message.source?.includes('video-') ||
+                                    message.source === 'play-event' ||
+                                    message.source?.includes('loadeddata') ||
+                                    message.source?.includes('playing') ||
+                                    message.source?.includes('delayed-confirm') ||
+                                    message.source?.includes('bridge-delayed-confirm') ||
+                                    message.source?.includes('play-resolved') ||
+                                    message.source?.includes('play-method') ||
+                                    message.source?.includes('src-set');
+
+                if (isPlayEvent) {
+                    debugLog(`DOM play event confirmation: ${absoluteUrl.substring(0, 60)}... source: ${message.source}`);
+
+                    // This is a confirmed play event - promote to confirmed and validate
+                    const playEventData = {
+                        source: message.source,
+                        timestamp: message.observedAt || Date.now(),
+                        elementIdHash: message.elementIdHash,
+                        duration: message.duration,
+                        dimensions: message.dimensions
+                    };
+
+                    const record = CapturedVideos.confirmVideo(tabId, absoluteUrl, playEventData);
+                    debugLog(`Record state after confirmVideo: ${record ? record.state : 'null'}, isStream: ${record ? record.isStream : 'n/a'}`);
+
+                    // For DOM-confirmed videos, skip validation and mark as actionable directly
+                    // Validation via HEAD/Range requests often fails due to missing cookies/auth
+                    // If the video is playing in the page, we know the URL is valid
+                    if (record && !record.isStream && record.state === VideoState.CONFIRMED) {
+                        debugLog(`Marking as actionable (DOM-confirmed): ${absoluteUrl.substring(0, 60)}...`);
+                        // Skip validation - go straight to actionable
+                        record.state = VideoState.ACTIONABLE;
+                        record.validatedAt = Date.now();
+                        debugLog(`Video actionable: ${absoluteUrl.substring(0, 60)}...`);
+
+                        // Update badge count
+                        updateBadgeForTab(tabId);
+                    }
+                } else {
+                    // Just a network interception - add as candidate only
+                    CapturedVideos.addCandidate(tabId, absoluteUrl, null, null);
+                }
             }
         }
-    }
 
-    if (message.action === 'mse-detected' && sender.tab?.id) {
-        debugLog(`MSE/blob detected on tab ${sender.tab.id} - streaming in use (duration: ${message.duration}, dims: ${message.dimensions})`);
-        // The actual stream URL should come from network interception (m3u8/mpd)
+        if (message.action === 'mse-detected' && sender.tab?.id) {
+            debugLog(`MSE/blob detected on tab ${sender.tab.id} - streaming in use (duration: ${message.duration}, dims: ${message.dimensions})`);
+            // Record play event for network-after-play correlation (MSE videos often load via network shortly after)
+            PlayEventTracker.recordPlayEvent(sender.tab.id, message.elementIdHash || 'mse');
+            // The actual stream URL should come from network interception (m3u8/mpd)
+        }
+    } catch (error) {
+        console.error('[MediaDownloader] Error in message handler:', error);
+        debugLog(`Message handler error: ${error.message}\n${error.stack}`);
     }
 });
 
@@ -1965,11 +2233,9 @@ async function downloadSpecificVideos(videos, options = {}) {
 
     debugLog(`Starting download of ${videos.length} videos`);
 
+    // Get active tab as fallback, but prefer using each video's original tabId
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab) {
-        DownloadState.reset();
-        return { error: 'No active tab' };
-    }
+    const fallbackTabId = activeTab?.id;
 
     for (const video of videos) {
         if (!DownloadState.isRunning) break;
@@ -1983,6 +2249,12 @@ async function downloadSpecificVideos(videos, options = {}) {
         const videoUrl = typeof video === 'string' ? video : video.url;
         const isStream = typeof video === 'object' && video.isStream;
 
+        // Use the video's original tabId if available, otherwise fall back to active tab
+        // This is important for XHR to work with the correct page context/cookies
+        const videoTabId = (typeof video === 'object' && video.tabId) || fallbackTabId;
+
+        debugLog(`Video tabId: ${videoTabId}, fallback: ${fallbackTabId}, video.tabId: ${typeof video === 'object' ? video.tabId : 'N/A'}`);
+
         try {
             let filename = Utils.createFilename(videoUrl);
             if (prefix) filename = prefix + '_' + filename;
@@ -1990,7 +2262,7 @@ async function downloadSpecificVideos(videos, options = {}) {
             if (isStream || /\.m3u8(\?|#|$)/i.test(videoUrl)) {
                 debugLog(`Downloading HLS stream: ${filename}`);
 
-                const hlsResult = await downloadHLSStream(videoUrl, filename, activeTab.id);
+                const hlsResult = await downloadHLSStream(videoUrl, filename, videoTabId);
 
                 if (hlsResult.error) {
                     debugLog(`HLS download failed: ${hlsResult.error}`);
@@ -2003,16 +2275,16 @@ async function downloadSpecificVideos(videos, options = {}) {
                     streamCount++;
                 }
             } else {
-                // Progressive video - use browser-native download
-                debugLog(`Downloading progressive: ${filename}`);
+                // Progressive video - fetch from page context and download
+                debugLog(`Downloading progressive: ${filename} from tab ${videoTabId}`);
 
                 const downloadResult = await downloadProgressiveVideo(
-                    { url: videoUrl, getFilename: () => filename },
+                    { url: videoUrl, tabId: videoTabId, getFilename: () => filename },
                     { prefix }
                 );
 
                 if (downloadResult.success) {
-                    debugLog(`Download started: ${filename}`);
+                    debugLog(`Download started: ${filename} via ${downloadResult.method}`);
                     DownloadState.processed++;
                     DownloadState.success++;
                 } else {
@@ -2134,11 +2406,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const result = await validateCandidateVideo(message.tabId, message.url);
                 sendResponse(result);
             } else if (message.action === 'fetch-preview-snippet') {
-                const result = await fetchPreviewSnippet(message.url, message.maxBytes);
-                // Convert ArrayBuffer to array for messaging
+                const result = await fetchPreviewSnippet(message.url, message.tabId, message.maxBytes);
+                // Convert ArrayBuffer to array for messaging (for fallback path)
                 if (result.buffer) {
                     result.buffer = Array.from(new Uint8Array(result.buffer));
                 }
+                // base64 from content script is already a string
                 sendResponse(result);
             } else if (message.action === 'hls-progress') {
                 debugLog(`HLS progress: ${message.status} - ${message.current}/${message.total}`);

@@ -524,9 +524,11 @@ async function showPlayer(video) {
 
     try {
         // Fetch preview snippet from background
+        // Pass the video's tabId so the background can use the correct page context
         const result = await chrome.runtime.sendMessage({
             action: 'fetch-preview-snippet',
             url: video.url,
+            tabId: video.tabId,  // Use video's original tab for proper auth context
             maxBytes: 2 * 1024 * 1024  // 2 MB preview snippet
         });
 
@@ -536,15 +538,29 @@ async function showPlayer(video) {
         if (result.error) {
             const errorEl = document.createElement('div');
             errorEl.className = 'player-error';
-            errorEl.textContent = 'Preview unavailable: ' + result.error;
+            errorEl.textContent = result.error;
             videoPlayer.appendChild(errorEl);
             return;
         }
 
-        // Create blob URL from buffer data
-        const buffer = new Uint8Array(result.buffer);
-        const blob = new Blob([buffer], { type: result.contentType || 'video/mp4' });
-        const blobUrl = URL.createObjectURL(blob);
+        let blobUrl;
+
+        // Handle base64 response from page context or buffer from service worker
+        if (result.base64) {
+            const binary = atob(result.base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: result.contentType || 'video/mp4' });
+            blobUrl = URL.createObjectURL(blob);
+        } else if (result.buffer) {
+            const buffer = new Uint8Array(result.buffer);
+            const blob = new Blob([buffer], { type: result.contentType || 'video/mp4' });
+            blobUrl = URL.createObjectURL(blob);
+        } else {
+            throw new Error('No preview data received');
+        }
 
         // Cleanup previous blob URL
         cleanupPreviewBlob();
