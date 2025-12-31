@@ -4,7 +4,8 @@
       "Bash(dir:*)",
       "Bash(ren \"image-downloader-extension\" \"media-downloader-extension\")",
       "Bash(git mv:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(del \"D:\\scripts\\Misc Scripts\\Misc-Scripts\\browser_extensions\\media-downloader-extension\\hls.js\")"
     ]
   }
 }

@@ -1,6 +1,6 @@
 # Media Downloader Extension
 
-A Chrome/Brave browser extension for batch downloading images from multiple browser tabs with intelligent duplicate detection.
+A Chrome/Brave browser extension for batch downloading images and videos from multiple browser tabs with intelligent duplicate detection and HLS stream support.
 
 ---
 
@@ -8,14 +8,19 @@ A Chrome/Brave browser extension for batch downloading images from multiple brow
 
 | Feature | Description |
 |---------|-------------|
-| **Batch Downloads** | Download images from all selected tabs at once |
+| **Batch Downloads** | Download media from all selected tabs at once |
+| **Image + Video Support** | Toggle between Images and Videos mode |
+| **HLS Stream Capture** | Download HLS (.m3u8) streaming videos |
 | **Popup UI** | Clean interface with progress tracking and controls |
 | **Perceptual Hashing** | Detects duplicate images even if renamed or resized |
 | **URL Deduplication** | Skips previously downloaded URLs |
-| **Smart Image Detection** | Finds the best quality version of images on pages |
+| **Smart Detection** | Finds the best quality version of media on pages |
+| **Video Interception** | Captures video URLs from fetch/XHR and play events |
+| **Network Monitoring** | Passive capture of video requests via webRequest API |
 | **Keyboard Shortcuts** | Quick download without opening the popup |
-| **Pause/Resume** | Control batch downloads mid-operation |
+| **Pause/Resume/Cancel** | Full control over batch downloads |
 | **Tab Management** | Optionally close tabs after downloading |
+| **Filename Prefix** | Add custom prefix to downloaded files |
 
 ---
 
@@ -42,13 +47,28 @@ Click the extension icon in your browser toolbar to open the popup:
 
 | Control | Description |
 |---------|-------------|
-| **Download N images** | Downloads from all highlighted tabs |
-| **Close tabs after download** | Toggle auto-closing tabs after download |
-| **Skip duplicates** | Toggle duplicate detection |
-| **Interval (ms)** | Delay between downloads (prevents rate limiting) |
+| **Images / Videos toggle** | Switch between image and video download mode |
+| **Download button** | Downloads from all highlighted tabs (Images) or opens video list (Videos) |
+| **Auto-close tabs** | Toggle auto-closing tabs after download |
+| **Skip dupes** | Toggle duplicate detection |
+| **Interval (sec)** | Delay between downloads (prevents rate limiting) |
 | **Filename prefix** | Optional prefix for downloaded filenames |
 | **Pause/Resume** | Control ongoing batch downloads |
 | **Cancel** | Stop the current batch operation |
+
+### Video Mode
+
+When in Videos mode, clicking the download button opens a video selection modal:
+
+| Badge | Meaning |
+|-------|---------|
+| **DOM** | Video found in page HTML |
+| **HLS** | Streaming video (m3u8 manifest detected) |
+| **NET** | Video captured from network traffic |
+| **Check mark** | Detected from video playback event |
+| **Playing indicator** | Video currently playing |
+
+Select videos from the list and click Download. HLS streams are automatically assembled from segments.
 
 ### Selecting Multiple Tabs
 
@@ -82,11 +102,11 @@ const Config = {
     useTimestampInFilename: true,     // Prefix filenames with YYMMDDHHMMSS
 
     deduplication: {
-        enabled: true,                 // Track downloaded images
+        enabled: true,                 // Track downloaded media
         timeframeDays: 30,             // How long to remember downloads
         ignoreQueryParams: true,       // Treat URLs with different params as same
         perceptualHash: {
-            enabled: true,             // Content-based duplicate detection
+            enabled: true,             // Content-based duplicate detection (images)
             hammingThreshold: 5        // Similarity threshold (0-64, lower = stricter)
         }
     },
@@ -99,9 +119,19 @@ const Config = {
 
 ## How It Works
 
-### Image Detection
+### Architecture
 
-The extension injects a content script that finds the best image on each page:
+The extension uses a multi-layer detection approach:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Service Worker** | `background.js` | Coordinates downloads, manages state, handles HLS parsing |
+| **Popup** | `popup.html/js` | User interface for options and progress |
+| **Interceptor** | `intercept.js` | Runs in MAIN world to hook fetch/XHR and watch video events |
+| **Bridge** | `bridge.js` | Runs in ISOLATED world to relay detections to service worker |
+| **Offscreen** | `offscreen.html` | Handles blob assembly for HLS downloads |
+
+### Image Detection
 
 1. **Direct images** - If the tab URL is an image, downloads directly
 2. **Gallery overlays** - Detects common lightbox/gallery plugins
@@ -110,9 +140,23 @@ The extension injects a content script that finds the best image on each page:
 5. **Data attributes** - Checks `data-src`, `data-original`, etc.
 6. **Background images** - Extracts CSS background-image URLs
 
-### Duplicate Detection
+### Video Detection
 
-Two-stage duplicate detection prevents re-downloading the same image:
+1. **DOM scanning** - Finds `<video>` elements and their sources
+2. **Play event capture** - Watches for video playback events
+3. **Fetch/XHR interception** - Captures video URLs from network requests
+4. **Network monitoring** - Uses webRequest API to passively capture video traffic
+5. **Stream detection** - Identifies HLS (.m3u8) and DASH (.mpd) manifests
+
+### HLS Stream Download
+
+1. **Manifest parsing** - Parses master and media playlists
+2. **Quality selection** - Automatically selects highest quality variant
+3. **Segment download** - Fetches all segments sequentially with page cookies
+4. **Assembly** - Concatenates segments into a single .ts file
+5. **DRM detection** - Reports protected content as unsupported
+
+### Duplicate Detection (Images)
 
 | Stage | Method | Catches |
 |-------|--------|---------|
@@ -126,20 +170,11 @@ The perceptual hash algorithm:
 4. Generates 64-bit fingerprint
 5. Matches if Hamming distance is below threshold
 
-### Download Process
-
-1. Query selected/highlighted tabs
-2. For each tab, inject content script to find image
-3. Check URL against download history
-4. Fetch image data and generate perceptual hash
-5. Check content hash against download history
-6. Detect MIME type from magic bytes and correct extension
-7. Download via Chrome downloads API
-8. Add to history and optionally close tab
-
 ---
 
-## Supported Image Formats
+## Supported Formats
+
+### Images
 
 | Format | Extension | Detection |
 |--------|-----------|-----------|
@@ -151,21 +186,31 @@ The perceptual hash algorithm:
 | SVG | `.svg` | XML/svg tag detection |
 | BMP | `.bmp` | Magic bytes `42 4D` |
 
+### Videos
+
+| Format | Extension | Detection |
+|--------|-----------|-----------|
+| MP4 | `.mp4` | ftyp box |
+| WebM | `.webm` | Matroska signature |
+| MOV | `.mov` | ftyp qt box |
+| AVI | `.avi` | RIFF/AVI signature |
+| OGV | `.ogv` | OggS signature |
+| HLS | `.m3u8` | Manifest parsing |
+
 ---
 
-## Differences from the Userscript
+## Permissions
 
-This extension replaces the `universal_image_downloader.user.js` userscript with significant improvements:
-
-| Aspect | Userscript | Extension |
-|--------|------------|-----------|
-| **Trigger** | Ctrl+double-click on image | Select tabs, click button or shortcut |
-| **Batch processing** | One image at a time | All selected tabs at once |
-| **Progress feedback** | Pill notification | Full progress bar with stats |
-| **Pause/Resume** | Not supported | Full pause/resume control |
-| **Settings** | Edit script source | UI toggles in popup |
-| **Tab management** | Limited | Full close-after-download support |
-| **Installation** | Userscript manager | Native browser extension |
+| Permission | Why |
+|------------|-----|
+| `tabs` | Query selected tabs |
+| `downloads` | Save media to disk |
+| `storage` | Persist download history and settings |
+| `activeTab` | Access current tab |
+| `scripting` | Inject detection scripts |
+| `webRequest` | Passively monitor video network requests |
+| `offscreen` | Assemble HLS segments outside service worker |
+| `<all_urls>` | Fetch media from any site |
 
 ---
 
@@ -175,9 +220,12 @@ This extension replaces the `universal_image_downloader.user.js` userscript with
 |-------|----------|
 | Extension not loading | Ensure Developer mode is enabled |
 | No image found | Page may use non-standard image loading |
+| No video found | Play the video first, then scan again |
+| HLS download fails | Stream may be DRM protected or require authentication |
 | Duplicate not detected | Hash threshold may need adjustment |
 | Downloads failing | Check browser download permissions |
 | Shortcuts not working | Check for conflicts at `chrome://extensions/shortcuts` |
+| Videos show as "Stream" | HLS/DASH streams are detected but may need the video to play first |
 
 ---
 
@@ -187,19 +235,26 @@ This extension replaces the `universal_image_downloader.user.js` userscript with
 - Download history stored in `chrome.storage.local`
 - No data sent to external servers
 - No analytics or tracking
+- Network monitoring is passive (read-only, no modification)
 
 ---
 
-## Permissions
+## Current Status
 
-| Permission | Why |
-|------------|-----|
-| `tabs` | Query selected tabs |
-| `downloads` | Save images to disk |
-| `storage` | Persist download history |
-| `activeTab` | Access current tab |
-| `scripting` | Inject image detection script |
-| `<all_urls>` | Fetch images from any site |
+The extension is under active development. Current capabilities:
+
+| Feature | Status |
+|---------|--------|
+| Image batch download | Complete |
+| Image perceptual hashing | Complete |
+| Direct video download (MP4, WebM) | Complete |
+| Video detection from DOM | Complete |
+| Video detection from network | Complete |
+| HLS stream download | Complete |
+| DASH stream download | Not yet implemented |
+| DRM protected content | Detected but not supported |
+
+See `media-downloader-roadmap.md` for the full development plan.
 
 ---
 
@@ -207,5 +262,7 @@ This extension replaces the `universal_image_downloader.user.js` userscript with
 
 | Version | Changes |
 |---------|---------|
+| 1.3 | HLS stream download support, offscreen document for segment assembly |
+| 1.2 | Video mode with DOM scanning, network interception, fetch/XHR hooks |
 | 1.1 | Added filename prefix option, popup UI improvements |
-| 1.0 | Initial release with batch downloads and perceptual hashing |
+| 1.0 | Initial release with batch image downloads and perceptual hashing |

@@ -1,5 +1,11 @@
 /**
  * Popup script - handles UI interactions and communicates with background service worker
+ *
+ * VIDEO MODE:
+ * Only shows "actionable" videos that have been confirmed by a play event
+ * and validated via header probe. Uses the state machine in background.js.
+ * Candidates (unconfirmed) can optionally be shown in a separate section
+ * with actions disabled until the user plays them on the page.
  */
 
 // Elements
@@ -37,7 +43,9 @@ let isPaused = false;
 let pollInterval = null;
 let currentMediaMode = 'images';
 let detectedVideos = [];
+let candidateVideos = [];
 let selectedVideoUrls = new Set();
+let currentPreviewBlobUrl = null;
 
 // Video modal elements
 const videoModal = document.getElementById('video-modal');
@@ -53,7 +61,7 @@ const mediaTypeBtns = document.querySelectorAll('.media-type__btn');
 async function loadSettings() {
     try {
         const result = await chrome.storage.local.get(['closeTabs', 'skipDuplicates', 'interval', 'prefix']);
-        
+
         if (result.closeTabs !== undefined) {
             closeTabsToggle.checked = result.closeTabs;
         }
@@ -134,7 +142,7 @@ function updateProgress(processed, total, isPaused, duplicates = 0) {
 async function pollStatus() {
     try {
         const status = await chrome.runtime.sendMessage({ action: 'get-status' });
-        
+
         if (status.isRunning) {
             updateProgress(status.processed, status.total, status.isPaused, status.duplicates);
             isPaused = status.isPaused;
@@ -168,7 +176,7 @@ async function downloadSelected() {
         await showVideoModal();
         return;
     }
-    
+
     // Image mode - existing logic
     isPaused = false;
 
@@ -298,7 +306,7 @@ updateTabCount();
 checkRunningDownload();
 
 // =============================================================================
-// VIDEO MODE
+// VIDEO MODE - Play-gated detection with state machine
 // =============================================================================
 
 // Media type selector
@@ -323,24 +331,29 @@ function updateButtonText() {
 // Show video modal and scan for videos
 async function showVideoModal() {
     videoModal.classList.add('active');
-    videoList.innerHTML = '<div class="modal__empty">Scanning...</div>';
+    videoList.innerHTML = '<div class="modal__empty">Scanning for videos...</div>';
     detectedVideos = [];
+    candidateVideos = [];
     selectedVideoUrls.clear();
     updateSelectionInfo();
     hidePlayer();
-    
+
     try {
         const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
         const tabIds = tabs.map(t => t.id);
-        
+
+        // Request videos with candidates included for display
         const response = await chrome.runtime.sendMessage({
             action: 'scan-videos',
-            tabIds: tabIds
+            tabIds: tabIds,
+            includeUnconfirmed: true  // Get candidates for the "unconfirmed" section
         });
-        
-        detectedVideos = response.videos || [];
+
+        detectedVideos = response.videos || [];      // Actionable only
+        candidateVideos = response.candidates || []; // Unconfirmed candidates
+
         renderVideoList();
-        
+
     } catch (error) {
         videoList.innerHTML = `<div class="modal__empty">Error: ${error.message}</div>`;
     }
@@ -349,71 +362,128 @@ async function showVideoModal() {
 function hideModal() {
     videoModal.classList.remove('active');
     hidePlayer();
+    cleanupPreviewBlob();
 }
 
 function renderVideoList() {
-    if (detectedVideos.length === 0) {
-        videoList.innerHTML = '<div class="modal__empty">No videos found. Play a video on the page first, then try again.</div>';
+    const hasActionable = detectedVideos.length > 0;
+    const hasCandidates = candidateVideos.length > 0;
+
+    if (!hasActionable && !hasCandidates) {
+        videoList.innerHTML = `
+            <div class="modal__empty">
+                <p>No videos detected yet.</p>
+                <p class="hint">Play a video on the page, then click "List videos" again.</p>
+            </div>`;
         return;
     }
-    
-    const html = detectedVideos.map((video) => {
-        const isSelected = selectedVideoUrls.has(video.url);
-        const source = video.source || 'unknown';
-        
-        // Badge based on origin
-        let originClass, originLabel;
-        if (video.isPlaying) {
-            originClass = 'origin-playing';
-            originLabel = '▶';
-        } else if (video.origin === 'dom') {
-            originClass = 'origin-dom';
-            originLabel = 'DOM';
-        } else if (video.origin === 'play') {
-            originClass = 'origin-play';
-            originLabel = '✓';
-        } else {
-            originClass = 'origin-net';
-            originLabel = 'NET';
+
+    let html = '';
+
+    // Actionable videos section
+    if (hasActionable) {
+        if (hasCandidates) {
+            html += `<div class="section-label">Ready to Download (${detectedVideos.length})</div>`;
         }
-        
-        // Find original index for data attribute
-        const originalIndex = detectedVideos.findIndex(v => v.url === video.url);
-        
-        return `
-            <div class="video-card ${isSelected ? 'selected' : ''}" data-index="${originalIndex}">
-                <div class="video-card__checkbox">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                </div>
-                <div class="video-card__info">
-                    <div class="video-card__source">
-                        ${escapeHtml(source)}
-                        <span class="video-card__origin ${originClass}">${originLabel}</span>
-                    </div>
-                    <div class="video-card__meta">
-                        ${video.duration ? formatDuration(video.duration) : ''}
-                        ${video.filesize ? formatFilesize(video.filesize) : ''}
-                        ${video.dimensions || ''}
-                    </div>
-                </div>
-                <button class="video-card__play" data-play="${originalIndex}" title="Preview">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z"/>
-                    </svg>
-                </button>
-            </div>
-        `;
-    }).join('');
-    
-    videoList.innerHTML = `<div class="video-grid">${html}</div>`;
+
+        html += '<div class="video-grid">';
+        html += detectedVideos.map((video, idx) => {
+            return renderVideoCard(video, idx, true);
+        }).join('');
+        html += '</div>';
+    }
+
+    // Candidates section (unconfirmed)
+    if (hasCandidates) {
+        html += `
+            <div class="section-label candidates-label">
+                Unconfirmed (${candidateVideos.length})
+                <span class="hint">Click play on page to confirm</span>
+            </div>`;
+
+        html += '<div class="video-grid candidates-grid">';
+        html += candidateVideos.map((video, idx) => {
+            return renderVideoCard(video, detectedVideos.length + idx, false);
+        }).join('');
+        html += '</div>';
+    }
+
+    videoList.innerHTML = html;
     updateSelectionInfo();
+}
+
+function renderVideoCard(video, index, isActionable) {
+    const isSelected = selectedVideoUrls.has(video.url);
+    const source = video.source || 'unknown';
+    const isStream = video.isStream;
+
+    // Status badge based on state
+    let originClass, originLabel, tooltip;
+    if (isStream) {
+        originClass = 'origin-stream';
+        originLabel = 'HLS';
+        tooltip = 'Streaming video';
+    } else if (video.state === 'actionable') {
+        originClass = 'origin-ready';
+        originLabel = '✓';
+        tooltip = 'Ready to download';
+    } else if (video.state === 'failed') {
+        originClass = 'origin-failed';
+        originLabel = '✗';
+        tooltip = video.failureReason || 'Validation failed';
+    } else if (video.state === 'candidate') {
+        originClass = 'origin-candidate';
+        originLabel = '?';
+        tooltip = 'Unconfirmed - play on page to detect';
+    } else {
+        originClass = 'origin-net';
+        originLabel = 'NET';
+        tooltip = 'Network capture';
+    }
+
+    // Failure message for failed videos
+    const failureHtml = video.failureReason
+        ? `<div class="video-card__failure">${escapeHtml(video.failureReason)}</div>`
+        : '';
+
+    return `
+        <div class="video-card ${isSelected ? 'selected' : ''} ${isStream ? 'is-stream' : ''} ${!isActionable ? 'is-candidate' : ''}"
+             data-index="${index}"
+             data-url="${escapeHtml(video.url)}"
+             ${isStream ? 'data-stream="true"' : ''}>
+            <div class="video-card__checkbox ${!isActionable ? 'disabled' : ''}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            </div>
+            <div class="video-card__info">
+                <div class="video-card__source">
+                    ${escapeHtml(source)}
+                    <span class="video-card__origin ${originClass}" title="${tooltip}">${originLabel}</span>
+                </div>
+                <div class="video-card__meta">
+                    ${video.duration ? formatDuration(video.duration) : ''}
+                    ${video.filesize ? formatFilesize(video.filesize) : ''}
+                    ${video.dimensions || ''}
+                    ${isStream ? '<span class="stream-note">Stream</span>' : ''}
+                </div>
+                ${failureHtml}
+            </div>
+            <button class="video-card__play ${!isActionable ? 'disabled' : ''}"
+                    data-play="${index}"
+                    title="${isActionable ? 'Preview' : 'Play on page first'}"
+                    ${!isActionable ? 'disabled' : ''}>
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+            </button>
+        </div>
+    `;
 }
 
 function updateSelectionInfo() {
     const count = selectedVideoUrls.size;
-    selectionInfo.textContent = `${count} selected`;
+    selectionInfo.textContent = count > 0 ? `${count} selected` : 'Select videos to download';
     modalDownload.disabled = count === 0;
 }
 
@@ -427,32 +497,91 @@ function formatDuration(seconds) {
 function formatFilesize(bytes) {
     if (!bytes) return '';
     if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
 }
 
 function escapeHtml(str) {
+    if (!str) return '';
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
 }
 
-function showPlayer(video) {
+// Preview using blob snippet from background
+async function showPlayer(video) {
     if (!videoPlayer || !playerVideo) return;
-    
-    playerVideo.src = video.url;
-    playerVideo.load();
+
+    // Show loading state
     videoPlayer.classList.add('active');
-    playerVideo.play().catch(() => {
-        // Preview may fail due to CORS - that's fine, download can still work
-    });
+    playerVideo.src = '';
+    playerVideo.poster = '';
+
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'player-loading';
+    loadingEl.textContent = 'Loading preview...';
+    videoPlayer.appendChild(loadingEl);
+
+    try {
+        // Fetch preview snippet from background
+        const result = await chrome.runtime.sendMessage({
+            action: 'fetch-preview-snippet',
+            url: video.url,
+            maxBytes: 2 * 1024 * 1024  // 2 MB preview snippet
+        });
+
+        // Remove loading indicator
+        loadingEl.remove();
+
+        if (result.error) {
+            const errorEl = document.createElement('div');
+            errorEl.className = 'player-error';
+            errorEl.textContent = 'Preview unavailable: ' + result.error;
+            videoPlayer.appendChild(errorEl);
+            return;
+        }
+
+        // Create blob URL from buffer data
+        const buffer = new Uint8Array(result.buffer);
+        const blob = new Blob([buffer], { type: result.contentType || 'video/mp4' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Cleanup previous blob URL
+        cleanupPreviewBlob();
+        currentPreviewBlobUrl = blobUrl;
+
+        // Set video source and play
+        playerVideo.src = blobUrl;
+        playerVideo.load();
+        playerVideo.play().catch((e) => {
+            console.warn('Auto-play blocked:', e);
+        });
+
+    } catch (error) {
+        loadingEl.remove();
+        const errorEl = document.createElement('div');
+        errorEl.className = 'player-error';
+        errorEl.textContent = 'Preview failed: ' + error.message;
+        videoPlayer.appendChild(errorEl);
+    }
 }
 
 function hidePlayer() {
     if (!videoPlayer || !playerVideo) return;
-    
+
     playerVideo.pause();
     playerVideo.src = '';
     videoPlayer.classList.remove('active');
+
+    // Remove any loading/error elements
+    videoPlayer.querySelectorAll('.player-loading, .player-error').forEach(el => el.remove());
+}
+
+function cleanupPreviewBlob() {
+    if (currentPreviewBlobUrl) {
+        URL.revokeObjectURL(currentPreviewBlobUrl);
+        currentPreviewBlobUrl = null;
+    }
 }
 
 // Video modal event listeners
@@ -465,25 +594,32 @@ videoModal.addEventListener('click', (e) => {
 videoList.addEventListener('click', (e) => {
     // Handle play button
     const playBtn = e.target.closest('.video-card__play');
-    if (playBtn) {
+    if (playBtn && !playBtn.disabled) {
         e.stopPropagation();
         const index = parseInt(playBtn.dataset.play);
-        const video = detectedVideos[index];
+
+        // Get video from combined list
+        let video;
+        if (index < detectedVideos.length) {
+            video = detectedVideos[index];
+        } else {
+            video = candidateVideos[index - detectedVideos.length];
+        }
+
         if (video) showPlayer(video);
         return;
     }
-    
-    // Handle card selection
+
+    // Handle card selection (only for actionable videos)
     const card = e.target.closest('.video-card');
-    if (card) {
-        const index = parseInt(card.dataset.index);
-        const video = detectedVideos[index];
-        if (video) {
-            if (selectedVideoUrls.has(video.url)) {
-                selectedVideoUrls.delete(video.url);
+    if (card && !card.classList.contains('is-candidate')) {
+        const url = card.dataset.url;
+        if (url) {
+            if (selectedVideoUrls.has(url)) {
+                selectedVideoUrls.delete(url);
                 card.classList.remove('selected');
             } else {
-                selectedVideoUrls.add(video.url);
+                selectedVideoUrls.add(url);
                 card.classList.add('selected');
             }
             updateSelectionInfo();
@@ -493,38 +629,41 @@ videoList.addEventListener('click', (e) => {
 
 modalDownload.addEventListener('click', async () => {
     if (selectedVideoUrls.size === 0) return;
-    
-    const urls = Array.from(selectedVideoUrls);
+
+    // Build video info array with stream flags (only from actionable videos)
+    const selectedVideos = detectedVideos.filter(v => selectedVideoUrls.has(v.url));
+
     hideModal();
-    
+
     showProgress(true);
-    updateProgress(0, urls.length, false);
+    updateProgress(0, selectedVideos.length, false);
     startPolling();
-    
+
     try {
         const response = await chrome.runtime.sendMessage({
             action: 'download-specific-videos',
-            urls: urls,
+            videos: selectedVideos,
             options: {
                 interval: getIntervalMs(),
                 prefix: prefixInput.value.trim()
             }
         });
-        
+
         stopPolling();
-        
+
         if (response.error) {
             showStatus(response.error, 'error');
         } else {
-            const { success, skipped, cancelled } = response;
+            const { success, skipped, cancelled, streams } = response;
             let msg = `${success} downloaded`;
+            if (streams > 0) msg += `, ${streams} streams`;
             if (skipped > 0) msg += `, ${skipped} failed`;
             if (cancelled) msg += ' (cancelled)';
             showStatus(msg, success > 0 ? 'success' : '');
         }
-        
+
         showProgress(false);
-        
+
     } catch (error) {
         stopPolling();
         showStatus('Error: ' + error.message, 'error');
@@ -536,4 +675,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && videoModal.classList.contains('active')) {
         hideModal();
     }
+});
+
+// Cleanup on popup close
+window.addEventListener('unload', () => {
+    cleanupPreviewBlob();
 });
