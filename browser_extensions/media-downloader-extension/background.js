@@ -101,6 +101,9 @@ class VideoRecord {
 
         // For deduplication - compound key
         this.dedupeKey = null;
+
+        // Page URL for Referer header
+        this.pageUrl = null;
     }
 
     generateId(url, tabId) {
@@ -222,6 +225,7 @@ class VideoRecord {
             id: this.id,
             url: this.url,
             tabId: this.tabId,  // Include tabId for download context
+            pageUrl: this.pageUrl,  // Include page URL for Referer header
             state: this.state,
             source: this.source,
             contentType: this.contentType,
@@ -569,15 +573,19 @@ async function validateProgressiveVideo(record) {
 // DOWNLOAD IMPLEMENTATION - Browser-native for progressive MP4
 // =============================================================================
 
+// Track active referer rules for cleanup
+let activeRefererRuleId = 1000;
+
 /**
- * Download progressive MP4 using chrome.downloads API directly.
+ * Download progressive MP4 using chrome.downloads API with Referer header injection.
  *
- * This is the simplest and most reliable method - the browser handles
- * cookies and authentication for the video's domain automatically.
+ * Uses declarativeNetRequest to temporarily add a Referer header rule,
+ * then triggers the download, then removes the rule.
  */
 async function downloadProgressiveVideo(record, options = {}) {
     const url = record.url;
     const tabId = record.tabId;
+    const pageUrl = record.pageUrl;
     const prefix = options.prefix || '';
 
     let filename = record.getFilename();
@@ -588,11 +596,54 @@ async function downloadProgressiveVideo(record, options = {}) {
     debugLog(`Downloading progressive video: ${filename}`);
     debugLog(`URL: ${url.substring(0, 100)}...`);
     debugLog(`TabId: ${tabId}`);
+    debugLog(`PageUrl (Referer): ${pageUrl || 'not available'}`);
 
-    // Use chrome.downloads directly - it handles cookies for the video's domain
+    // Generate unique rule ID
+    const ruleId = activeRefererRuleId++;
+
     try {
+        // If we have a page URL, add a temporary declarativeNetRequest rule
+        // to set the Referer header for this specific video URL
+        if (pageUrl) {
+            debugLog(`Adding Referer rule ${ruleId} for download...`);
+
+            // Parse the video URL to create a URL filter
+            let urlFilter;
+            try {
+                const parsedUrl = new URL(url);
+                // Use the path without query params for more reliable matching
+                urlFilter = parsedUrl.origin + parsedUrl.pathname + '*';
+            } catch (e) {
+                urlFilter = url;
+            }
+
+            await chrome.declarativeNetRequest.updateDynamicRules({
+                addRules: [{
+                    id: ruleId,
+                    priority: 1,
+                    action: {
+                        type: 'modifyHeaders',
+                        requestHeaders: [
+                            {
+                                header: 'Referer',
+                                operation: 'set',
+                                value: pageUrl
+                            }
+                        ]
+                    },
+                    condition: {
+                        urlFilter: urlFilter,
+                        resourceTypes: ['media', 'xmlhttprequest', 'other']
+                    }
+                }],
+                removeRuleIds: []
+            });
+
+            debugLog(`Referer rule ${ruleId} added: ${urlFilter} -> ${pageUrl}`);
+        }
+
+        // Now trigger the download
         debugLog('Starting download via chrome.downloads...');
-        debugLog(`Download URL (full): ${url}`);
 
         const downloadId = await chrome.downloads.download({
             url: url,
@@ -602,6 +653,21 @@ async function downloadProgressiveVideo(record, options = {}) {
         });
 
         debugLog(`Download started: ID=${downloadId}, filename=${filename}`);
+
+        // Clean up the rule after a delay (give download time to start)
+        if (pageUrl) {
+            setTimeout(async () => {
+                try {
+                    await chrome.declarativeNetRequest.updateDynamicRules({
+                        removeRuleIds: [ruleId],
+                        addRules: []
+                    });
+                    debugLog(`Referer rule ${ruleId} removed`);
+                } catch (e) {
+                    debugLog(`Failed to remove referer rule: ${e.message}`);
+                }
+            }, 5000);
+        }
 
         // Monitor the download to check if content type is correct
         setTimeout(async () => {
@@ -622,11 +688,23 @@ async function downloadProgressiveVideo(record, options = {}) {
             success: true,
             downloadId: downloadId,
             filename: filename,
-            method: 'chrome-downloads'
+            method: 'chrome-downloads-with-referer'
         };
 
     } catch (downloadError) {
-        debugLog(`chrome.downloads failed: ${downloadError.message}`);
+        debugLog(`Download failed: ${downloadError.message}`);
+
+        // Clean up rule on error
+        if (pageUrl) {
+            try {
+                await chrome.declarativeNetRequest.updateDynamicRules({
+                    removeRuleIds: [ruleId],
+                    addRules: []
+                });
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        }
 
         return {
             success: false,
@@ -754,7 +832,7 @@ async function fetchPreviewSnippet(url, tabId, maxBytes = Config.preview.default
 // =============================================================================
 
 chrome.webRequest.onCompleted.addListener(
-    (details) => {
+    async (details) => {
         if (details.tabId < 0) return;
         if (details.statusCode !== 200 && details.statusCode !== 206) return;
 
@@ -770,6 +848,17 @@ chrome.webRequest.onCompleted.addListener(
             const url = details.url;
             const tabId = details.tabId;
 
+            // Get the page URL for Referer header (use initiator or query the tab)
+            let pageUrl = details.initiator || null;
+            if (!pageUrl) {
+                try {
+                    const tab = await chrome.tabs.get(tabId);
+                    pageUrl = tab.url;
+                } catch (e) {
+                    // Tab might have closed
+                }
+            }
+
             // Check if this is a segment (not standalone video)
             const isSegment = CapturedVideos.segmentPatterns.some(p => p.test(url));
             if (isSegment) {
@@ -781,7 +870,8 @@ chrome.webRequest.onCompleted.addListener(
             const isStream = CapturedVideos.isStreamManifest(url, contentType);
             if (isStream) {
                 // Streams are handled separately, just add as candidate
-                CapturedVideos.addCandidate(tabId, url, contentType, contentLength);
+                const record = CapturedVideos.addCandidate(tabId, url, contentType, contentLength);
+                if (record && pageUrl) record.pageUrl = pageUrl;
                 return;
             }
 
@@ -797,6 +887,9 @@ chrome.webRequest.onCompleted.addListener(
             // Add as candidate first
             const record = CapturedVideos.addCandidate(tabId, url, contentType, contentLength);
             if (!record) return;
+
+            // Store the page URL for Referer header
+            if (pageUrl) record.pageUrl = pageUrl;
 
             // NETWORK-AFTER-PLAY FALLBACK:
             // Check if this request occurred shortly after a play event
@@ -941,6 +1034,12 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                     const record = CapturedVideos.confirmVideo(tabId, absoluteUrl, playEventData);
                     debugLog(`Record state after confirmVideo: ${record ? record.state : 'null'}, isStream: ${record ? record.isStream : 'n/a'}`);
 
+                    // Store the page URL for Referer header during download
+                    if (record) {
+                        record.pageUrl = sender.tab?.url || message.tabUrl || null;
+                        debugLog(`Set pageUrl: ${record.pageUrl || 'none'}`);
+                    }
+
                     // For DOM-confirmed videos, skip validation and mark as actionable directly
                     // Validation via HEAD/Range requests often fails due to missing cookies/auth
                     // If the video is playing in the page, we know the URL is valid
@@ -956,7 +1055,10 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                     }
                 } else {
                     // Just a network interception - add as candidate only
-                    CapturedVideos.addCandidate(tabId, absoluteUrl, null, null);
+                    const record = CapturedVideos.addCandidate(tabId, absoluteUrl, null, null);
+                    if (record) {
+                        record.pageUrl = sender.tab?.url || message.tabUrl || null;
+                    }
                 }
             }
         }
@@ -2250,10 +2352,12 @@ async function downloadSpecificVideos(videos, options = {}) {
         const isStream = typeof video === 'object' && video.isStream;
 
         // Use the video's original tabId if available, otherwise fall back to active tab
-        // This is important for XHR to work with the correct page context/cookies
         const videoTabId = (typeof video === 'object' && video.tabId) || fallbackTabId;
 
-        debugLog(`Video tabId: ${videoTabId}, fallback: ${fallbackTabId}, video.tabId: ${typeof video === 'object' ? video.tabId : 'N/A'}`);
+        // Get pageUrl for Referer header
+        const videoPageUrl = (typeof video === 'object' && video.pageUrl) || null;
+
+        debugLog(`Video tabId: ${videoTabId}, pageUrl: ${videoPageUrl || 'none'}`);
 
         try {
             let filename = Utils.createFilename(videoUrl);
@@ -2279,7 +2383,7 @@ async function downloadSpecificVideos(videos, options = {}) {
                 debugLog(`Downloading progressive: ${filename} from tab ${videoTabId}`);
 
                 const downloadResult = await downloadProgressiveVideo(
-                    { url: videoUrl, tabId: videoTabId, getFilename: () => filename },
+                    { url: videoUrl, tabId: videoTabId, pageUrl: videoPageUrl, getFilename: () => filename },
                     { prefix }
                 );
 
