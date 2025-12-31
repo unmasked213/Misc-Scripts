@@ -911,12 +911,11 @@ chrome.webRequest.onCompleted.addListener(
                 PlayEventTracker.markPromoted(tabId, url);
 
                 // Skip validation, mark as actionable directly
-                if (!record.isStream) {
-                    record.state = VideoState.ACTIONABLE;
-                    record.validatedAt = Date.now();
-                    debugLog(`Video actionable (network-after-play): ${url.substring(0, 60)}...`);
-                    updateBadgeForTab(tabId);
-                }
+                // This applies to both progressive MP4 and HLS streams
+                record.state = VideoState.ACTIONABLE;
+                record.validatedAt = Date.now();
+                debugLog(`Video actionable (network-after-play): ${url.substring(0, 60)}... [${record.isStream ? 'HLS' : 'progressive'}]`);
+                updateBadgeForTab(tabId);
             } else {
                 debugLog(`Candidate added (no promotion): ${url.substring(0, 60)}... reason: ${promotionCheck.reason}`);
             }
@@ -1043,12 +1042,12 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                     // For DOM-confirmed videos, skip validation and mark as actionable directly
                     // Validation via HEAD/Range requests often fails due to missing cookies/auth
                     // If the video is playing in the page, we know the URL is valid
-                    if (record && !record.isStream && record.state === VideoState.CONFIRMED) {
-                        debugLog(`Marking as actionable (DOM-confirmed): ${absoluteUrl.substring(0, 60)}...`);
+                    // This applies to both progressive MP4 and HLS streams
+                    if (record && record.state === VideoState.CONFIRMED) {
+                        debugLog(`Marking as actionable (DOM-confirmed): ${absoluteUrl.substring(0, 60)}... [${record.isStream ? 'HLS' : 'progressive'}]`);
                         // Skip validation - go straight to actionable
                         record.state = VideoState.ACTIONABLE;
                         record.validatedAt = Date.now();
-                        debugLog(`Video actionable: ${absoluteUrl.substring(0, 60)}...`);
 
                         // Update badge count
                         updateBadgeForTab(tabId);
