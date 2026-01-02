@@ -31,9 +31,10 @@ Practical utility scripts for Windows users: automation, media processing, brows
 - **[List Files](python/create_list_of_filenames/)** - Generate hierarchical file listings
 
 ### Browser Extensions
-- **[Media Downloader](browser_extensions/media-downloader-extension/)** - Batch download images from tabs
+- **[Media Downloader](browser_extensions/media-downloader-extension/)** - Batch download images and videos from tabs with HLS streaming support
 
 ### Browser Userscripts
+- **[Auto Load-More Toggle](javascript/violentmonkey_userscripts/auto_load_more_toggle.user.js)** - Auto-click "Load More" buttons with idle detection
 - **[Global Short Video Hider](javascript/violentmonkey_userscripts/global_short_video_hider.user.js)** - Hide videos under 60s
 - **[Page Hopper](javascript/violentmonkey_userscripts/page_hopper.user.js)** - Navigate pages with `[` and `]`
 - **[Rectangle Link Selector](javascript/violentmonkey_userscripts/rectangle_link_selector.user.js)** - Select links by drawing

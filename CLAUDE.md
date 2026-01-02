@@ -29,15 +29,21 @@ Misc-Scripts/
 ├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
 │   ├── CLAUDE.md                     # Extension development guidelines
 │   ├── README.md                     # User-facing documentation
-│   └── media-downloader-extension/   # Batch image downloader with deduplication
+│   └── media-downloader-extension/   # Batch image/video downloader with HLS support
 │       ├── manifest.json             # Extension manifest (Manifest V3)
 │       ├── background.js             # Service worker for downloads
 │       ├── popup.html                # Popup UI
 │       ├── popup.js                  # Popup logic
+│       ├── intercept.js              # Content script (MAIN world) - fetch/XHR hooks
+│       ├── bridge.js                 # Content script (ISOLATED world) - message relay
+│       ├── offscreen.html            # Offscreen document for HLS segment assembly
 │       ├── icons/                    # Extension icons
-│       └── README.md                 # Extension documentation
+│       ├── README.md                 # Extension documentation
+│       ├── CLAUDE.md                 # Extension development guidelines
+│       └── media-downloader-roadmap.md # Development roadmap
 ├── javascript/                        # Browser userscripts (Violentmonkey/Tampermonkey)
 │   └── violentmonkey_userscripts/
+│       ├── auto_load_more_toggle.user.js       # Auto-click "Load More" buttons with idle detection
 │       ├── global_short_video_hider.user.js    # Hide short videos on any site
 │       ├── page_hopper.user.js                 # Navigate paginated sites with [ ]
 │       ├── rectangle_link_selector.user.js     # Select links by drawing rectangle
@@ -101,12 +107,15 @@ Misc-Scripts/
 
 | Extension | Purpose | Entry Point |
 |-----------|---------|-------------|
-| `media-downloader-extension/` | Batch download images from selected tabs with duplicate detection | Load unpacked in Developer mode |
+| `media-downloader-extension/` | Batch download images and videos from selected tabs with HLS streaming support and duplicate detection | Load unpacked in Developer mode |
 
 **Key Files**:
 - `media-downloader-extension/manifest.json` - Extension manifest (Manifest V3)
-- `media-downloader-extension/background.js` - Service worker with download logic and perceptual hashing
-- `media-downloader-extension/popup.html` - Popup UI with progress tracking
+- `media-downloader-extension/background.js` - Service worker with download logic, HLS parsing, and perceptual hashing
+- `media-downloader-extension/popup.html` - Popup UI with progress tracking and video selection modal
+- `media-downloader-extension/intercept.js` - Content script (MAIN world) for hooking fetch/XHR and video events
+- `media-downloader-extension/bridge.js` - Content script (ISOLATED world) for message relay
+- `media-downloader-extension/offscreen.html` - Offscreen document for HLS segment assembly
 - `browser_extensions/CLAUDE.md` - Development guidelines for extensions
 
 **Dependencies**: Chromium-based browser (Chrome, Brave, Edge). No external libraries.
@@ -147,6 +156,7 @@ Misc-Scripts/
 
 | Script | Purpose |
 |--------|---------|
+| `auto_load_more_toggle.user.js` | Auto-click "Load More" buttons with idle detection and navigation safety |
 | `global_short_video_hider.user.js` | Hide short videos globally on any website |
 | `page_hopper.user.js` | Navigate paginated sites using `[` and `]` keys |
 | `rectangle_link_selector.user.js` | Select multiple links by right-click dragging a rectangle |
@@ -418,6 +428,24 @@ All browser userscripts in this repository MUST follow these rules exactly.
 ---
 
 ## Changelog
+
+### 2026-01-02
+- **Added** `auto_load_more_toggle.user.js` userscript
+  - Toggle-based auto-clicker for "Load More" buttons
+  - Floating toggle button (bottom-right) with visual state feedback
+  - Idle detection to auto-stop when no new content loads
+  - Navigation safety to prevent accidental page changes
+  - Multi-button selection overlay when multiple candidates found
+  - Configurable cycle delay with persistence
+- **Updated** Media Downloader extension to v1.7
+  - Added video download support (MP4, WebM, MOV, AVI, OGV)
+  - Added HLS (.m3u8) stream download with automatic segment assembly
+  - Added fetch/XHR interception for video URL capture
+  - Added network monitoring via webRequest API
+  - Added video selection modal with source badges (DOM, HLS, NET)
+  - Added keyboard shortcuts (Alt+Shift+S, Alt+Shift+D)
+  - New files: `intercept.js`, `bridge.js`, `offscreen.html`
+  - Added extension-specific `CLAUDE.md` and roadmap
 
 ### 2025-12-29
 - **Added** `browser_extensions/` folder with Image Downloader extension

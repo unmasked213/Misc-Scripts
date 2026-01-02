@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Load-More Toggle
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      2.4.0
+// @version      2.5.0
 // @description  Toggle-based auto-clicker for "Load More" buttons with idle detection
 // @author       Unmasked213
 // @match        *://*/*
@@ -47,7 +47,7 @@
             /previous/i,
             /page\s*\d+/i,
             /^\d+$/,
-            /^[<>«»]$/,
+            /^[<>ï¿½ï¿½]$/,
             /older/i,
             /newer/i
         ]
@@ -80,6 +80,13 @@
 
     let toggleButton = null;
     let selectionOverlay = null;
+
+    // SVG icons for button states
+    const ICONS = {
+        idle: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M13.22 17.219a.75.75 0 0 0-.073.976l.073.084l2.367 2.37a.77.77 0 0 0 .664.351a.79.79 0 0 0 .611-.276l.053-.075l2.367-2.37l.073-.084a.75.75 0 0 0 .007-.882l-.08-.094l-.084-.073a.75.75 0 0 0-.883-.007l-.094.08L17 18.44V3.656l-.007-.089c-.05-.32-.363-.567-.743-.567s-.694.247-.743.567l-.007.09V18.44l-1.22-1.221l-.084-.073a.75.75 0 0 0-.976.073m-6.97 2.789A2.25 2.25 0 0 1 4 17.758v-11.5a2.25 2.25 0 0 1 2.25-2.25h6a.75.75 0 0 1 0 1.5h-6a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h4a.75.75 0 0 1 0 1.5z"/></svg>',
+        running: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10s10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8s8 3.58 8 8s-3.58 8-8 8m3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8S14 8.67 14 9.5s.67 1.5 1.5 1.5m-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8S7 8.67 7 9.5S7.67 11 8.5 11m3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5"/></svg>',
+        paused: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>'
+    };
 
     // Strips icon elements before extracting text. Many sites use icon fonts or SVGs
     // alongside text; including these pollutes the label with icon ligature characters.
@@ -265,10 +272,11 @@
     function createToggleButton() {
         const btn = document.createElement('div');
         btn.id = 'lm-toggle-btn';
-        btn.innerHTML = '?';
+        btn.innerHTML = ICONS.idle;
         // Styling aligned with shared UI design system tokens.
         // z-index 999999 sits above most site content but below browser UI.
         // display: none initially; visibility controlled by updateButtonVisibility.
+        // All backgrounds use solid colors (opacity 1) for consistent visibility.
         btn.style.cssText = `
             position: fixed;
             bottom: 20px;
@@ -284,7 +292,7 @@
             justify-content: center;
             cursor: pointer;
             z-index: 999999;
-            border: 2px solid rgba(228, 228, 242, 0.22);
+            border: 2px solid rgb(60, 63, 75);
             transition: all 240ms cubic-bezier(0.2, 0, 0.2, 1);
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -294,7 +302,7 @@
         btn.addEventListener('click', toggle);
         btn.addEventListener('mouseenter', () => {
             btn.style.background = 'rgb(40, 43, 54)';
-            btn.style.borderColor = 'rgba(228, 228, 242, 0.22)';
+            btn.style.borderColor = 'rgb(80, 83, 95)';
         });
         btn.addEventListener('mouseleave', () => {
             updateButtonState();
@@ -335,23 +343,27 @@
     }
 
     // Three visual states using shared UI design system tokens:
-    // - Inactive: elevated surface with muted text
-    // - Running: accent color (teal)
-    // - Paused: warning color (amber)
+    // - Inactive: elevated surface with muted text, custom idle icon
+    // - Running: accent color (teal), smiley icon
+    // - Paused: warning color (amber), pause icon
+    // All colors are solid (no transparency) for consistent visibility.
     function updateButtonState() {
         if (!toggleButton) return;
         if (state.paused) {
-            toggleButton.style.background = 'rgba(255, 152, 0, 0.15)';
+            toggleButton.innerHTML = ICONS.paused;
+            toggleButton.style.background = 'rgb(51, 38, 20)';
             toggleButton.style.color = 'rgb(255, 152, 0)';
             toggleButton.style.borderColor = 'rgb(255, 152, 0)';
         } else if (state.running) {
-            toggleButton.style.background = 'rgba(30, 171, 208, 0.15)';
+            toggleButton.innerHTML = ICONS.running;
+            toggleButton.style.background = 'rgb(20, 45, 52)';
             toggleButton.style.color = 'rgb(30, 171, 208)';
             toggleButton.style.borderColor = 'rgb(30, 171, 208)';
         } else {
+            toggleButton.innerHTML = ICONS.idle;
             toggleButton.style.background = 'rgb(28, 31, 41)';
             toggleButton.style.color = 'rgb(145, 147, 159)';
-            toggleButton.style.borderColor = 'rgba(228, 228, 242, 0.22)';
+            toggleButton.style.borderColor = 'rgb(60, 63, 75)';
         }
     }
 
