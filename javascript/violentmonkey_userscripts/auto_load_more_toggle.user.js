@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Load-More Toggle
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      2.5.0
+// @version      2.6.0
 // @description  Toggle-based auto-clicker for "Load More" buttons with idle detection
 // @author       Unmasked213
 // @match        *://*/*
@@ -26,8 +26,6 @@
     // to avoid stale state causing unexpected behaviour on sites that change structure.
     const CONFIG = {
         cycleDelay: GM_getValue('cycleDelay', 1500),
-        scrollDelay: 300,
-        scrollAmount: 400,
         maxIdleCycles: 5,
         // Word-boundary patterns to catch variants like "Load more videos", "Show more comments".
         // Anchoring to start (^) would miss these common forms.
@@ -75,7 +73,9 @@
         // First click establishes mode. If 'ajax', subsequent navigation attempts stop the script.
         // If 'navigate', navigation is permitted throughout. Prevents accidental page changes
         // when user expects in-page loading.
-        navigationMode: null
+        navigationMode: null,
+        // Tracks if mouse is hovering over toggle button (for icon state management)
+        isHovering: false
     };
 
     let toggleButton = null;
@@ -277,6 +277,7 @@
         // z-index 999999 sits above most site content but below browser UI.
         // display: none initially; visibility controlled by updateButtonVisibility.
         // All backgrounds use solid colors (opacity 1) for consistent visibility.
+        // Border matches background when idle for invisible border effect.
         btn.style.cssText = `
             position: fixed;
             bottom: 20px;
@@ -292,8 +293,8 @@
             justify-content: center;
             cursor: pointer;
             z-index: 999999;
-            border: 2px solid rgb(60, 63, 75);
-            transition: all 240ms cubic-bezier(0.2, 0, 0.2, 1);
+            border: 2px solid rgb(28, 31, 41);
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.70);
@@ -301,10 +302,19 @@
 
         btn.addEventListener('click', toggle);
         btn.addEventListener('mouseenter', () => {
-            btn.style.background = 'rgb(40, 43, 54)';
-            btn.style.borderColor = 'rgb(80, 83, 95)';
+            state.isHovering = true;
+            if (state.running && !state.paused) {
+                // When running, show pause icon on hover
+                btn.innerHTML = ICONS.paused;
+                btn.style.background = 'rgb(40, 43, 54)';
+            } else if (!state.running && !state.paused) {
+                // When idle, show hover state
+                btn.style.background = 'rgb(40, 43, 54)';
+                btn.style.borderColor = 'rgb(40, 43, 54)';
+            }
         });
         btn.addEventListener('mouseleave', () => {
+            state.isHovering = false;
             updateButtonState();
         });
 
@@ -342,28 +352,39 @@
         updateButtonVisibility();
     }
 
-    // Three visual states using shared UI design system tokens:
-    // - Inactive: elevated surface with muted text, custom idle icon
-    // - Running: accent color (teal), smiley icon
-    // - Paused: warning color (amber), pause icon
-    // All colors are solid (no transparency) for consistent visibility.
+    // Three visual states with smooth transitions:
+    // - Idle: border matches background (invisible), default icon
+    // - Running: green border rgba(0, 162, 103, 1), default icon (pause on hover)
+    // - Paused: red/coral border rgba(255, 113, 100, 1), pause icon
+    // All transitions are 0.2s ease for smooth feedback.
     function updateButtonState() {
         if (!toggleButton) return;
         if (state.paused) {
+            // Paused state: red/coral color scheme
             toggleButton.innerHTML = ICONS.paused;
-            toggleButton.style.background = 'rgb(51, 38, 20)';
-            toggleButton.style.color = 'rgb(255, 152, 0)';
-            toggleButton.style.borderColor = 'rgb(255, 152, 0)';
+            toggleButton.style.background = 'rgb(28, 31, 41)';
+            toggleButton.style.color = 'rgba(255, 113, 100, 1)';
+            toggleButton.style.borderColor = 'rgba(255, 113, 100, 1)';
+            toggleButton.style.opacity = '1';
         } else if (state.running) {
-            toggleButton.innerHTML = ICONS.running;
-            toggleButton.style.background = 'rgb(20, 45, 52)';
-            toggleButton.style.color = 'rgb(30, 171, 208)';
-            toggleButton.style.borderColor = 'rgb(30, 171, 208)';
+            // Running state: green border, show pause icon only if hovering
+            if (state.isHovering) {
+                toggleButton.innerHTML = ICONS.paused;
+                toggleButton.style.background = 'rgb(40, 43, 54)';
+            } else {
+                toggleButton.innerHTML = ICONS.idle;
+                toggleButton.style.background = 'rgb(28, 31, 41)';
+            }
+            toggleButton.style.color = 'rgba(0, 162, 103, 1)';
+            toggleButton.style.borderColor = 'rgba(0, 162, 103, 1)';
+            toggleButton.style.opacity = '1';
         } else {
+            // Idle state: border matches background (invisible)
             toggleButton.innerHTML = ICONS.idle;
             toggleButton.style.background = 'rgb(28, 31, 41)';
             toggleButton.style.color = 'rgb(145, 147, 159)';
-            toggleButton.style.borderColor = 'rgb(60, 63, 75)';
+            toggleButton.style.borderColor = 'rgb(28, 31, 41)';
+            toggleButton.style.opacity = '1';
         }
     }
 
@@ -508,7 +529,7 @@
         cancel.addEventListener('click', () => {
             overlay.remove();
             selectionOverlay = null;
-            stop();
+            stop(false); // No fade-out when user cancels
         });
         container.appendChild(cancel);
 
@@ -556,15 +577,8 @@
                 return;
             }
 
-            // scrollIntoView before click increases reliability on lazy-bound handlers
-            // and intersection-observer-gated buttons that ignore clicks when offscreen.
-            target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            await new Promise(r => setTimeout(r, 150));
-
+            // Click the target button without scrolling - allows user to scroll freely
             target.click();
-
-            window.scrollBy({ top: CONFIG.scrollAmount, behavior: 'smooth' });
-            await new Promise(r => setTimeout(r, CONFIG.scrollDelay));
 
             await new Promise(r => setTimeout(r, CONFIG.cycleDelay));
 
@@ -609,7 +623,7 @@
 
         if (buttons.length === 0) {
             notify('No "Load More" buttons found on this page.');
-            stop();
+            stop(false); // No fade-out when no buttons found
             return;
         }
 
@@ -623,7 +637,9 @@
     }
 
     // Full state reset. Does not reset everHadButtons (latch persists for session).
-    function stop() {
+    // When finishing naturally (not paused), fade out the button with cubic-bezier animation.
+    function stop(fadeOut = true) {
+        const wasRunning = state.running;
         state.running = false;
         state.paused = false;
         state.signature = null;
@@ -634,7 +650,20 @@
             state.observer = null;
         }
         state.getMutationCount = null;
-        updateButtonState();
+
+        if (fadeOut && wasRunning && toggleButton) {
+            // Fade out animation when loader finishes naturally
+            toggleButton.style.opacity = '0';
+            setTimeout(() => {
+                updateButtonState();
+                // After transition completes, restore opacity for next use
+                setTimeout(() => {
+                    if (toggleButton) toggleButton.style.opacity = '1';
+                }, 50);
+            }, 400); // Match the opacity transition duration
+        } else {
+            updateButtonState();
+        }
     }
 
     // Toggle behaviour depends on current state:
