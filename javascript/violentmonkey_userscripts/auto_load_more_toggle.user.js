@@ -266,33 +266,38 @@
         const btn = document.createElement('div');
         btn.id = 'lm-toggle-btn';
         btn.innerHTML = '?';
-        // z-index 999999 chosen to sit above most site content but below browser UI.
+        // Styling aligned with shared UI design system tokens.
+        // z-index 999999 sits above most site content but below browser UI.
         // display: none initially; visibility controlled by updateButtonVisibility.
         btn.style.cssText = `
             position: fixed;
             bottom: 20px;
             right: 20px;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #2a2a2a;
-            color: #888;
+            width: 52px;
+            height: 52px;
+            border-radius: 999px;
+            background: rgb(28, 31, 41);
+            color: rgb(145, 147, 159);
             font-size: 24px;
             display: none;
             align-items: center;
             justify-content: center;
             cursor: pointer;
             z-index: 999999;
-            border: 2px solid #444;
-            transition: all 0.2s ease;
+            border: 2px solid rgba(228, 228, 242, 0.22);
+            transition: all 240ms cubic-bezier(0.2, 0, 0.2, 1);
             user-select: none;
-            font-family: system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.70);
         `;
 
         btn.addEventListener('click', toggle);
-        btn.addEventListener('mouseenter', () => btn.style.borderColor = '#666');
+        btn.addEventListener('mouseenter', () => {
+            btn.style.background = 'rgb(40, 43, 54)';
+            btn.style.borderColor = 'rgba(228, 228, 242, 0.22)';
+        });
         btn.addEventListener('mouseleave', () => {
-            btn.style.borderColor = state.paused ? '#a94' : state.running ? '#4a9' : '#444';
+            updateButtonState();
         });
 
         document.body.appendChild(btn);
@@ -329,25 +334,29 @@
         updateButtonVisibility();
     }
 
-    // Three visual states: inactive (grey), running (green), paused (amber).
+    // Three visual states using shared UI design system tokens:
+    // - Inactive: elevated surface with muted text
+    // - Running: accent color (teal)
+    // - Paused: warning color (amber)
     function updateButtonState() {
         if (!toggleButton) return;
         if (state.paused) {
-            toggleButton.style.background = '#3a3a1a';
-            toggleButton.style.color = '#a94';
-            toggleButton.style.borderColor = '#a94';
+            toggleButton.style.background = 'rgba(255, 152, 0, 0.15)';
+            toggleButton.style.color = 'rgb(255, 152, 0)';
+            toggleButton.style.borderColor = 'rgb(255, 152, 0)';
         } else if (state.running) {
-            toggleButton.style.background = '#1a3a2a';
-            toggleButton.style.color = '#4a9';
-            toggleButton.style.borderColor = '#4a9';
+            toggleButton.style.background = 'rgba(30, 171, 208, 0.15)';
+            toggleButton.style.color = 'rgb(30, 171, 208)';
+            toggleButton.style.borderColor = 'rgb(30, 171, 208)';
         } else {
-            toggleButton.style.background = '#2a2a2a';
-            toggleButton.style.color = '#888';
-            toggleButton.style.borderColor = '#444';
+            toggleButton.style.background = 'rgb(28, 31, 41)';
+            toggleButton.style.color = 'rgb(145, 147, 159)';
+            toggleButton.style.borderColor = 'rgba(228, 228, 242, 0.22)';
         }
     }
 
     // Selection overlay shown when multiple candidates exist.
+    // Styling aligned with shared UI design system tokens.
     // Hover highlights both the overlay option and the actual DOM element to aid identification.
     function createSelectionOverlay(buttons) {
         if (selectionOverlay) selectionOverlay.remove();
@@ -364,41 +373,71 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            font-family: system-ui, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         `;
 
         const container = document.createElement('div');
         container.style.cssText = `
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 8px;
+            background: rgb(11, 14, 23);
+            border: 1px solid rgba(228, 228, 242, 0.10);
+            border-radius: 12px;
             padding: 24px;
-            max-width: 500px;
+            max-width: 400px;
             width: 90%;
             max-height: 70vh;
             overflow-y: auto;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.70);
+        `;
+
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        `;
+
+        const headerIcon = document.createElement('div');
+        headerIcon.style.cssText = `
+            width: 10px;
+            height: 10px;
+            background: rgb(30, 171, 208);
+            border-radius: 8px;
         `;
 
         const title = document.createElement('div');
-        title.textContent = 'Multiple "Load More" buttons found';
-        title.style.cssText = 'color: #eee; font-size: 16px; margin-bottom: 16px; font-weight: 500;';
-        container.appendChild(title);
+        title.textContent = 'Multiple buttons found';
+        title.style.cssText = `
+            font-size: 1.15rem;
+            font-weight: 500;
+            color: rgb(240, 240, 252);
+        `;
+
+        header.appendChild(headerIcon);
+        header.appendChild(title);
+        container.appendChild(header);
 
         const subtitle = document.createElement('div');
-        subtitle.textContent = 'Select the one to use for this session:';
-        subtitle.style.cssText = 'color: #888; font-size: 13px; margin-bottom: 16px;';
+        subtitle.textContent = 'Select the one to use for this session';
+        subtitle.style.cssText = `
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: rgb(145, 147, 159);
+            margin-bottom: 12px;
+        `;
         container.appendChild(subtitle);
 
         buttons.forEach((btn, index) => {
             const option = document.createElement('div');
             option.style.cssText = `
-                background: #252525;
-                border: 1px solid #333;
-                border-radius: 4px;
-                padding: 12px;
+                background: rgb(28, 31, 41);
+                border: 2px solid transparent;
+                border-radius: 8px;
+                padding: 12px 16px;
                 margin-bottom: 8px;
                 cursor: pointer;
-                transition: all 0.15s ease;
+                transition: background 120ms cubic-bezier(0.2, 0, 0.2, 1), border-color 120ms cubic-bezier(0.2, 0, 0.2, 1);
             `;
 
             const text = getTextContent(btn);
@@ -406,21 +445,21 @@
             const classes = btn.className ? `.${btn.className.split(' ').slice(0, 2).join('.')}` : '';
 
             option.innerHTML = `
-                <div style="color: #ccc; font-size: 14px; margin-bottom: 4px;">${index + 1}. "${text}"</div>
-                <div style="color: #666; font-size: 11px; font-family: monospace;">&lt;${tag}${classes}&gt;</div>
+                <div style="color: rgb(228, 228, 242); font-size: 0.86rem; margin-bottom: 4px;">${index + 1}. "${text || '(no text)'}"</div>
+                <div style="color: rgb(145, 147, 159); font-size: 0.75rem; font-family: monospace;">&lt;${tag}${classes}&gt;</div>
             `;
 
             // Hover highlights actual DOM element with outline for visual confirmation.
             option.addEventListener('mouseenter', () => {
-                option.style.borderColor = '#4a9';
-                option.style.background = '#2a2a2a';
-                btn.style.outline = '3px solid #4a9';
+                option.style.background = 'rgb(40, 43, 54)';
+                option.style.borderColor = 'rgb(30, 171, 208)';
+                btn.style.outline = '3px solid rgb(30, 171, 208)';
                 btn.style.outlineOffset = '2px';
             });
 
             option.addEventListener('mouseleave', () => {
-                option.style.borderColor = '#333';
-                option.style.background = '#252525';
+                option.style.background = 'rgb(28, 31, 41)';
+                option.style.borderColor = 'transparent';
                 btn.style.outline = '';
             });
 
@@ -438,7 +477,22 @@
 
         const cancel = document.createElement('div');
         cancel.textContent = 'Cancel';
-        cancel.style.cssText = 'color: #888; font-size: 13px; margin-top: 12px; cursor: pointer; text-align: center;';
+        cancel.style.cssText = `
+            color: rgb(145, 147, 159);
+            font-size: 0.86rem;
+            margin-top: 16px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 999px;
+            transition: background 120ms cubic-bezier(0.2, 0, 0.2, 1);
+        `;
+        cancel.addEventListener('mouseenter', () => {
+            cancel.style.background = 'rgba(228, 228, 242, 0.08)';
+        });
+        cancel.addEventListener('mouseleave', () => {
+            cancel.style.background = 'transparent';
+        });
         cancel.addEventListener('click', () => {
             overlay.remove();
             selectionOverlay = null;
