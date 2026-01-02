@@ -1,11 +1,62 @@
 {
   "permissions": {
     "allow": [
+      "Bash(pwsh:*)",
+
+      "Bash(git:*)",
+
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+
+      "Bash(find:*)",
+      "Bash(ls:*)",
       "Bash(dir:*)",
-      "Bash(ren \"image-downloader-extension\" \"media-downloader-extension\")",
-      "Bash(git mv:*)",
-      "Bash(powershell -Command:*)",
-      "Bash(del \"D:\\scripts\\Misc Scripts\\Misc-Scripts\\browser_extensions\\media-downloader-extension\\hls.js\")"
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(cat:*)",
+      "Bash(jq:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+
+      "Read(*)",
+      "Write(*)"
+    ],
+
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git checkout -- .:*)",
+
+      "Bash(pwsh:*Remove-Item*-Recurse*)",
+      "Bash(pwsh:*rm -r*)",
+      "Bash(pwsh:*del /s*)",
+      "Bash(pwsh:*rmdir /s*)",
+
+      "Read(*secrets.yaml*)",
+      "Write(*secrets.yaml*)",
+
+      "Bash(pwsh:*Remove-Item*configuration.yaml*)",
+      "Bash(pwsh:*Remove-Item*mpv.conf*)",
+      "Bash(pwsh:*Remove-Item*input.conf*)",
+      "Bash(pwsh:*Remove-Item*ui_lovelace_resources.yaml*)",
+      "Bash(pwsh:*Remove-Item*secrets.yaml*)",
+      "Bash(pwsh:*Remove-Item*foundation.js*)",
+      "Bash(pwsh:*Remove-Item*components.js*)"
+    ],
+
+    "ask": [
+      "Write(*configuration.yaml*)",
+      "Write(*mpv.conf*)",
+      "Write(*input.conf*)",
+      "Write(*ui_lovelace_resources.yaml*)",
+      "Write(*foundation.js*)",
+      "Write(*components.js*)"
     ]
   }
 }
