@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Load-More Toggle
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      2.6.0
+// @version      2.6.1
 // @description  Toggle-based auto-clicker for "Load More" buttons with idle detection
 // @author       Unmasked213
 // @match        *://*/*
@@ -278,6 +278,7 @@
         // display: none initially; visibility controlled by updateButtonVisibility.
         // All backgrounds use solid colors (opacity 1) for consistent visibility.
         // Border matches background when idle for invisible border effect.
+        const bgColor = 'rgb(28, 31, 41)';
         btn.style.cssText = `
             position: fixed;
             bottom: 20px;
@@ -285,7 +286,7 @@
             width: 52px;
             height: 52px;
             border-radius: 999px;
-            background: rgb(28, 31, 41);
+            background: ${bgColor};
             color: rgb(145, 147, 159);
             font-size: 24px;
             display: none;
@@ -293,7 +294,7 @@
             justify-content: center;
             cursor: pointer;
             z-index: 999999;
-            border: 2px solid rgb(28, 31, 41);
+            border: 2px solid ${bgColor};
             transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -308,7 +309,7 @@
                 btn.innerHTML = ICONS.paused;
                 btn.style.background = 'rgb(40, 43, 54)';
             } else if (!state.running && !state.paused) {
-                // When idle, show hover state
+                // When idle, show hover state - border stays same as background
                 btn.style.background = 'rgb(40, 43, 54)';
                 btn.style.borderColor = 'rgb(40, 43, 54)';
             }
@@ -352,6 +353,15 @@
         updateButtonVisibility();
     }
 
+    // Color constants for button states
+    const COLORS = {
+        bgIdle: 'rgb(28, 31, 41)',
+        bgHover: 'rgb(40, 43, 54)',
+        iconIdle: 'rgb(145, 147, 159)',
+        running: 'rgba(0, 162, 103, 1)',
+        paused: 'rgba(255, 113, 100, 1)'
+    };
+
     // Three visual states with smooth transitions:
     // - Idle: border matches background (invisible), default icon
     // - Running: green border rgba(0, 162, 103, 1), default icon (pause on hover)
@@ -362,28 +372,28 @@
         if (state.paused) {
             // Paused state: red/coral color scheme
             toggleButton.innerHTML = ICONS.paused;
-            toggleButton.style.background = 'rgb(28, 31, 41)';
-            toggleButton.style.color = 'rgba(255, 113, 100, 1)';
-            toggleButton.style.borderColor = 'rgba(255, 113, 100, 1)';
+            toggleButton.style.background = COLORS.bgIdle;
+            toggleButton.style.color = COLORS.paused;
+            toggleButton.style.borderColor = COLORS.paused;
             toggleButton.style.opacity = '1';
         } else if (state.running) {
             // Running state: green border, show pause icon only if hovering
             if (state.isHovering) {
                 toggleButton.innerHTML = ICONS.paused;
-                toggleButton.style.background = 'rgb(40, 43, 54)';
+                toggleButton.style.background = COLORS.bgHover;
             } else {
                 toggleButton.innerHTML = ICONS.idle;
-                toggleButton.style.background = 'rgb(28, 31, 41)';
+                toggleButton.style.background = COLORS.bgIdle;
             }
-            toggleButton.style.color = 'rgba(0, 162, 103, 1)';
-            toggleButton.style.borderColor = 'rgba(0, 162, 103, 1)';
+            toggleButton.style.color = COLORS.running;
+            toggleButton.style.borderColor = COLORS.running;
             toggleButton.style.opacity = '1';
         } else {
             // Idle state: border matches background (invisible)
             toggleButton.innerHTML = ICONS.idle;
-            toggleButton.style.background = 'rgb(28, 31, 41)';
-            toggleButton.style.color = 'rgb(145, 147, 159)';
-            toggleButton.style.borderColor = 'rgb(28, 31, 41)';
+            toggleButton.style.background = COLORS.bgIdle;
+            toggleButton.style.color = COLORS.iconIdle;
+            toggleButton.style.borderColor = COLORS.bgIdle;
             toggleButton.style.opacity = '1';
         }
     }
