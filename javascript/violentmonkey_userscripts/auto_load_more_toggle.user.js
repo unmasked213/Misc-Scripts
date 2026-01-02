@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Load-More Toggle
 // @namespace    https://github.com/unmasked213/Misc-Scripts
-// @version      2.6.2
+// @version      2.6.3
 // @description  Toggle-based auto-clicker for "Load More" buttons with idle detection
 // @author       Unmasked213
 // @match        *://*/*
@@ -269,6 +269,19 @@
         GM_notification({ text: message, title, timeout: 3000 });
     }
 
+    // Color constants for button states - must be defined before createToggleButton
+    const COLORS = {
+        bgIdle: 'rgb(28, 31, 41)',
+        bgHover: 'rgb(40, 43, 54)',
+        iconIdle: 'rgb(145, 147, 159)',
+        running: 'rgba(0, 162, 103, 1)',
+        paused: 'rgba(255, 113, 100, 1)',
+        // Box shadows: base shadow + optional inset border
+        shadowBase: '0 2px 8px rgba(0, 0, 0, 0.70)',
+        shadowRunning: '0 2px 8px rgba(0, 0, 0, 0.70), inset 0 0 0 2px rgba(0, 162, 103, 1)',
+        shadowPaused: '0 2px 8px rgba(0, 0, 0, 0.70), inset 0 0 0 2px rgba(255, 113, 100, 1)'
+    };
+
     function createToggleButton() {
         const btn = document.createElement('div');
         btn.id = 'lm-toggle-btn';
@@ -351,19 +364,6 @@
 
         updateButtonVisibility();
     }
-
-    // Color constants for button states
-    const COLORS = {
-        bgIdle: 'rgb(28, 31, 41)',
-        bgHover: 'rgb(40, 43, 54)',
-        iconIdle: 'rgb(145, 147, 159)',
-        running: 'rgba(0, 162, 103, 1)',
-        paused: 'rgba(255, 113, 100, 1)',
-        // Box shadows: base shadow + optional inset border
-        shadowBase: '0 2px 8px rgba(0, 0, 0, 0.70)',
-        shadowRunning: '0 2px 8px rgba(0, 0, 0, 0.70), inset 0 0 0 2px rgba(0, 162, 103, 1)',
-        shadowPaused: '0 2px 8px rgba(0, 0, 0, 0.70), inset 0 0 0 2px rgba(255, 113, 100, 1)'
-    };
 
     // Three visual states with smooth transitions:
     // - Idle: no border (just base shadow), default icon
