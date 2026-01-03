@@ -653,6 +653,37 @@ def open_folder():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/open-file', methods=['POST'])
+def open_file():
+    """Open a file with the system's default application."""
+    import subprocess
+    import platform
+    import os
+
+    data = request.json
+    path = data.get('path')
+
+    if not path:
+        return jsonify({'error': 'No path provided'}), 400
+
+    file_path = Path(path)
+
+    if not file_path.is_file():
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        if platform.system() == 'Windows':
+            os.startfile(str(file_path))
+        elif platform.system() == 'Darwin':
+            subprocess.run(['open', str(file_path)])
+        else:
+            subprocess.run(['xdg-open', str(file_path)])
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/heartbeat', methods=['POST'])
 def heartbeat():
     """Receive heartbeat from browser to keep server alive."""

@@ -2,13 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(pwsh:*)",
-
       "Bash(git:*)",
-
       "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
-
       "Bash(find:*)",
       "Bash(ls:*)",
       "Bash(dir:*)",
@@ -20,11 +17,10 @@
       "Bash(tail:*)",
       "Bash(sort:*)",
       "Bash(uniq:*)",
-
       "Read(*)",
-      "Write(*)"
+      "Write(*)",
+      "Bash(python -m py_compile:*)"
     ],
-
     "deny": [
       "Bash(git push:*)",
       "Bash(git push --force:*)",
@@ -32,15 +28,12 @@
       "Bash(git reset --hard:*)",
       "Bash(git clean:*)",
       "Bash(git checkout -- .:*)",
-
       "Bash(pwsh:*Remove-Item*-Recurse*)",
       "Bash(pwsh:*rm -r*)",
       "Bash(pwsh:*del /s*)",
       "Bash(pwsh:*rmdir /s*)",
-
       "Read(*secrets.yaml*)",
       "Write(*secrets.yaml*)",
-
       "Bash(pwsh:*Remove-Item*configuration.yaml*)",
       "Bash(pwsh:*Remove-Item*mpv.conf*)",
       "Bash(pwsh:*Remove-Item*input.conf*)",
@@ -49,7 +42,6 @@
       "Bash(pwsh:*Remove-Item*foundation.js*)",
       "Bash(pwsh:*Remove-Item*components.js*)"
     ],
-
     "ask": [
       "Write(*configuration.yaml*)",
       "Write(*mpv.conf*)",

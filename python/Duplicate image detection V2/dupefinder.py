@@ -733,44 +733,118 @@ def phash_similarity_scores(hashes_a: List[int], hashes_b: List[int]) -> Tuple[f
     similarity = 1.0 - (best_dist / 64.0)
     return similarity, best_dist
 
-def compute_composite_similarity(metrics: PairMetrics) -> float:
+def compute_composite_similarity(
+    metrics: PairMetrics,
+    fp_a: Fingerprint,
+    fp_b: Fingerprint,
+    cfg: dict,
+    dims_a: Tuple[int, int],
+    dims_b: Tuple[int, int]
+) -> float:
     """
-    Compute a composite similarity score that reflects actual image similarity.
+    Compute deletion-safe similarity score.
 
-    This combines:
-    - pHash similarity (perceptual hash match)
-    - Geometric coverage (proportion of keypoints that matched)
-    - Residual quality (how precise the geometric match is)
+    Returns a CONSERVATIVE LOWER BOUND on "safe to delete as redundant."
 
-    Returns a value between 0.0 and 1.0 where 1.0 means virtually identical.
+    100% unlock conditions (any one sufficient):
+      - Perfect pHash + strong geometry
+      - Perfect pHash + high texture + dimensional agreement
+
+    100% is blocked by (any one sufficient):
+      - Low texture without geometry confirmation
+      - Dimension mismatch without geometry confirmation
+      - pHash below 0.99
+
+    Invariants:
+      - pHash similarity is the base signal
+      - Confirming signals can only UNLOCK higher confidence, never penalise
+      - Absence of confirmation LIMITS upward movement, never reduces score
+      - Nothing ever reduces score below pHash
     """
-    phash_sim = metrics.phash_similarity
+    base_score = metrics.phash_similarity
 
-    # If no geometric verification was done, use pHash but cap it
-    if metrics.model == "none" or metrics.inliers == 0:
-        # Cap at 95% since we can't verify geometrically
-        return min(phash_sim, 0.95)
+    # Texture as entropy proxy (necessary but not sufficient for 100% alone)
+    texture_threshold = cfg["similarity"]["low_texture_keypoints_min"]
+    is_low_texture = (fp_a.keypoint_count < texture_threshold or
+                      fp_b.keypoint_count < texture_threshold)
 
-    # Average coverage between both images
-    avg_coverage = (metrics.coverage_a + metrics.coverage_b) / 2.0
+    # Dimensional agreement: aspect ratio + plausible scale
+    # This catches collisions between unrelated images that happen to hash similarly
+    aspect_a = dims_a[0] / dims_a[1] if dims_a[1] > 0 else 1.0
+    aspect_b = dims_b[0] / dims_b[1] if dims_b[1] > 0 else 1.0
+    aspects_match = abs(aspect_a - aspect_b) <= cfg["blocking"]["aspect_ratio_tolerance"]
 
-    # Residual quality: lower residual = better match
-    # Map residual 0-5px to quality 1.0-0.5
-    residual_quality = max(0.5, 1.0 - (metrics.residual_median_px / 10.0))
+    # Scale ratio: one should be a plausible resize of the other
+    # Policy: allow up to 16x area difference (4x linear scale)
+    pixels_a = dims_a[0] * dims_a[1]
+    pixels_b = dims_b[0] * dims_b[1]
+    if pixels_a > 0 and pixels_b > 0:
+        scale_ratio = max(pixels_a, pixels_b) / min(pixels_a, pixels_b)
+        scale_plausible = scale_ratio <= 16.0
+    else:
+        scale_plausible = False
 
-    # Composite: weighted combination
-    # - 50% pHash (perceptual similarity)
-    # - 35% coverage (geometric match proportion)
-    # - 15% residual quality (match precision)
-    composite = (0.50 * phash_sim) + (0.35 * avg_coverage) + (0.15 * residual_quality)
+    dimensions_agree = aspects_match and scale_plausible
 
-    # Scale to 0-100 range but cap at 99% unless truly identical
-    # Only show 100% if pHash is exact AND coverage is very high
-    if phash_sim >= 0.99 and avg_coverage >= 0.90 and metrics.residual_median_px <= 1.0:
-        return 1.0
+    # Geometry confirmation (when available)
+    has_geometry = metrics.model not in ("none", "phash_only")
 
-    # Cap at 99% otherwise - reserve 100% for near-identical
-    return min(composite, 0.99)
+    geometry_confirmed = (
+        has_geometry and
+        metrics.inliers >= cfg["geometry"]["variant"]["min_inliers"] and
+        metrics.coverage_a >= cfg["geometry"]["variant"]["coverage"] and
+        metrics.coverage_b >= cfg["geometry"]["variant"]["coverage"]
+    )
+
+    geometry_strong = (
+        geometry_confirmed and
+        metrics.inliers >= cfg["geometry"]["duplicate"]["min_inliers"] and
+        metrics.coverage_a >= cfg["geometry"]["duplicate"]["coverage"] and
+        metrics.coverage_b >= cfg["geometry"]["duplicate"]["coverage"] and
+        metrics.residual_median_px <= cfg["geometry"]["duplicate"]["reprojection_px"]
+    )
+
+    # === Scoring tiers ===
+
+    if base_score >= 0.99:
+        # Perfect pHash (Hamming distance 0)
+        if geometry_strong:
+            # Geometry confirms derivation: definite 100%
+            return 1.0
+        elif not is_low_texture and dimensions_agree:
+            # High texture + dimensional agreement: 100% for phash_only path
+            # Both conditions required to gate against collision-shaped false positives
+            return 1.0
+        elif not is_low_texture:
+            # High texture but dimensions don't match: cap at 99%
+            # Could be unrelated images that collided in pHash space
+            return 0.99
+        elif geometry_confirmed:
+            # Low texture but geometry partially confirms
+            return 0.99
+        else:
+            # Low texture, no confirmation: collision plausible
+            return 0.98
+
+    elif base_score >= 0.95:
+        # Very high pHash (2-3 bits different)
+        if geometry_strong:
+            return 0.99
+        elif geometry_confirmed:
+            return 0.98
+        else:
+            # No boost for texture alone in this band
+            # User must glance at 95-99% range anyway
+            return base_score
+
+    else:
+        # Moderate pHash
+        if geometry_strong:
+            return min(base_score + 0.05, 0.97)
+        elif geometry_confirmed:
+            return min(base_score + 0.02, 0.95)
+        else:
+            return base_score
 
 
 def decide_label(metrics: PairMetrics, fp_a: Fingerprint, fp_b: Fingerprint, cfg) -> str:
@@ -860,7 +934,10 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
         if pd.label == "different":
             continue
         # Use composite similarity for more accurate match percentage
-        sim = compute_composite_similarity(pd.metrics)
+        sim = compute_composite_similarity(
+            pd.metrics, fingerprints[pd.a], fingerprints[pd.b],
+            cfg, stats[pd.a], stats[pd.b]
+        )
         adj[pd.a].append((pd.b, sim))
         adj[pd.b].append((pd.a, sim))
     visited: set[Path] = set()
@@ -869,7 +946,10 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
     for pd in pairs:
         if pd.label != "different":
             # Use composite similarity instead of just pHash
-            composite_sim = compute_composite_similarity(pd.metrics)
+            composite_sim = compute_composite_similarity(
+                pd.metrics, fingerprints[pd.a], fingerprints[pd.b],
+                cfg, stats[pd.a], stats[pd.b]
+            )
             sim_map[(pd.a, pd.b)] = composite_sim
             sim_map[(pd.b, pd.a)] = composite_sim
     def rep_quality(p: Path) -> Tuple[int, int, int, int]:
@@ -906,9 +986,9 @@ def build_clusters(pairs: List[PairDecision], cfg, fingerprints: Dict[Path, Fing
                 member_sim[str(m)] = -1.0  # Special marker for representative
                 continue
             sim = sim_map.get((rep, m), 0.0)
-            # Use a lower threshold since composite scores are naturally lower than raw pHash
-            # Composite of 0.60 roughly corresponds to pHash of 0.75 (variant threshold)
-            if sim >= 0.55:
+            # Minimum threshold for cluster membership
+            # With deletion-safe scoring, scores are >= pHash, so 0.70 aligns with variant threshold
+            if sim >= 0.70:
                 members.append(m)
                 member_sim[str(m)] = sim
         members_sorted = [rep] + sorted([m for m in members if m != rep], key=rep_quality, reverse=True)
@@ -1048,10 +1128,10 @@ def write_html_report(out_dir: Path, clusters: List[Cluster], cfg, detector) -> 
                 if is_rep:
                     classes.append("rep")
                 else:
-                    # Adjusted thresholds for composite similarity
-                    # 85%+ = very high confidence duplicate
-                    # 70%+ = high confidence
-                    # below 70% = lower confidence (variant/edited)
+                    # Thresholds for deletion-safe similarity scoring
+                    # 85%+ = very high confidence, minimal review needed
+                    # 70%+ = high confidence, quick glance recommended
+                    # below 70% = lower confidence, visual comparison needed
                     if sim >= 0.85:
                         classes.append("sim-high")
                     elif sim >= 0.70:
