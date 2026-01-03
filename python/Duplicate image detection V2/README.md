@@ -97,10 +97,12 @@ Then open http://localhost:5000 in your browser.
 ## Features
 
 ### Web Interface
-- **Light/dark theme** - Toggle with the moon/sun icon
+- **Light/dark theme** - Toggle with the theme switch in header (dark is default)
 - **Responsive design** - Works on various screen sizes
 - **Keyboard navigation** - Tab through elements, arrow keys for groups
 - **Real-time progress** - Server-Sent Events (SSE) for live updates
+- **Right-click context menu** - Open file location, view full image
+- **Side-by-side comparison** - Compare any image with the reference
 
 ### Detection Engine
 - **Perceptual hashing** (8x8 pHash) for fast similarity detection
@@ -115,9 +117,10 @@ Then open http://localhost:5000 in your browser.
 - Confirmation required before deletion
 
 ### Performance
-- **SQLite fingerprint cache** - Speeds up repeat scans
+- **Temporary SQLite cache** - Fingerprints cached during scan session
 - **Quick mode** - Skip expensive geometric verification
-- **Auto-shutdown** - Server closes when browser tab is closed
+- **Auto-shutdown** - Server closes when browser tab is closed (15-second timeout)
+- **Multithreaded comparison** - Parallel processing for faster scans
 
 ---
 
@@ -129,8 +132,9 @@ Then open http://localhost:5000 in your browser.
 | `dupefinder.py` | Core detection engine (pHash + ORB matching) |
 | `index.html` | Web UI (single-page app) |
 | `requirements.txt` | Python dependencies |
-| `install_dependencies.bat` | One-click dependency installer |
-| `Launch Duplicate Finder Web.vbs` | Windowless launcher (no console) |
+| `install_dependencies.bat` | One-click dependency installer (Windows) |
+| `Launch Duplicate Finder Web.vbs` | Windowless launcher - no console window (Windows) |
+| `QUICK_START.md` | Condensed setup and usage guide |
 
 ---
 
@@ -179,6 +183,10 @@ Run `python dupefinder.py --help` for all options.
 - Ensure folder contains supported image files (JPG, PNG, WEBP, HEIC, etc.)
 - Try lowering the similarity threshold
 
+**Server doesn't shut down**
+- Close the browser tab - server auto-shuts down after 15 seconds
+- Or press Ctrl+C in the terminal if running from command line
+
 ---
 
 ## Supported Formats
@@ -189,9 +197,10 @@ JPG, JPEG, PNG, WEBP, HEIC, AVIF, TIFF, BMP, GIF
 
 ## Requirements
 
-- Python 3.9+
+- **Python 3.7+** (3.9+ recommended)
 - opencv-python-headless >= 4.5.0
 - numpy >= 1.19.0
 - pillow >= 8.0.0
 - flask >= 2.0.0
 - flask-cors >= 3.0.0
+- tkinter (included with Python on Windows, needed for folder picker dialog)

@@ -13,6 +13,8 @@ echo This will install the required Python packages:
 echo   - opencv-python-headless
 echo   - numpy
 echo   - pillow
+echo   - flask
+echo   - flask-cors
 echo.
 echo Press any key to continue...
 pause >nul
@@ -43,14 +45,14 @@ if errorlevel 1 (
 echo.
 echo [STEP 3/3] Installing required packages...
 echo.
-python -m pip install opencv-python-headless numpy pillow
+python -m pip install opencv-python-headless numpy pillow flask flask-cors
 
 if errorlevel 1 (
     echo.
     echo [ERROR] Installation failed
     echo.
     echo Please try running this as Administrator or install manually:
-    echo   pip install opencv-python-headless numpy pillow
+    echo   pip install opencv-python-headless numpy pillow flask flask-cors
     echo.
     pause
     exit /b 1
@@ -64,8 +66,8 @@ echo.
 echo All required packages have been installed.
 echo.
 echo You can now run the Duplicate Image Finder by:
-echo   - Double-clicking "Launch Duplicate Finder.bat"
-echo   - Or double-clicking "dupefinder_gui.py"
+echo   - Double-clicking "Launch Duplicate Finder Web.vbs"
+echo   - Or running "python server.py" from command line
 echo.
 echo Press any key to exit...
 pause >nul

@@ -454,34 +454,55 @@ def mark_batch():
 
 @app.route('/api/delete', methods=['POST'])
 def delete_marked():
-    """Move marked files to _dupes folder or permanently delete them."""
+    """Delete files specified in request body.
+    
+    Frontend sends the exact paths to delete, eliminating sync issues between
+    frontend marking state and backend session state. What you see marked in
+    the UI is exactly what gets deleted.
+    """
     data = request.json
     session_id = data.get('session_id')
     permanent = data.get('permanent', False)
+    paths = data.get('paths', [])
 
     session = get_session(session_id)
     if not session:
         return jsonify({'error': 'Invalid session'}), 400
 
-    if not session['marked']:
-        return jsonify({'error': 'No files marked'}), 400
+    if not paths:
+        return jsonify({'error': 'No files specified'}), 400
 
-    input_folder = session['input_folder']
+    input_folder = session.get('input_folder')
     if not input_folder:
         return jsonify({'error': 'No input folder set'}), 400
 
+    # Security: Validate all paths are within the scanned folder
+    input_folder_resolved = Path(input_folder).resolve()
+    validated_paths = []
+    rejected_paths = []
+
+    for path_str in paths:
+        try:
+            path = Path(path_str).resolve()
+            if input_folder_resolved in path.parents or path.parent == input_folder_resolved:
+                validated_paths.append(path_str)
+            else:
+                rejected_paths.append({'path': path_str, 'error': 'Outside scan folder'})
+        except Exception:
+            rejected_paths.append({'path': path_str, 'error': 'Invalid path'})
+
     moved = []
     deleted = []
-    failed = []
+    failed = list(rejected_paths)
     deletion_record = []
     dupes_dir = None
 
     if not permanent:
         # Create _dupes folder for move operation
-        dupes_dir = input_folder / '_dupes'
+        dupes_dir = input_folder_resolved / '_dupes'
         dupes_dir.mkdir(exist_ok=True)
 
-    for path_str in list(session['marked']):
+    for path_str in validated_paths:
         file_path = Path(path_str)
 
         try:
@@ -493,7 +514,6 @@ def delete_marked():
                 # Permanently delete the file
                 file_path.unlink()
                 deleted.append({'path': path_str})
-                session['marked'].remove(path_str)
             else:
                 # Move to _dupes folder
                 # Generate unique destination
@@ -510,14 +530,19 @@ def delete_marked():
                 shutil.move(str(file_path), str(dest))
                 moved.append({'original': path_str, 'destination': str(dest)})
                 deletion_record.append((path_str, str(dest)))
-                session['marked'].remove(path_str)
 
         except Exception as e:
             failed.append({'path': path_str, 'error': str(e)})
 
-    # Only record history for move operations (undo is possible)
+    # Record history for undo (move operations only)
     if deletion_record and not permanent:
         session['deletion_history'].append(deletion_record)
+
+    # Sync session state with what was actually deleted (for consistency)
+    for item in moved:
+        session['marked'].discard(item['original'])
+    for item in deleted:
+        session['marked'].discard(item['path'])
 
     response_data = {
         'failed': len(failed),
