@@ -215,5 +215,39 @@
     document.addEventListener('loadedmetadata', onVideoPlay, true);
     document.addEventListener('canplay', onVideoPlay, true);
 
+    // =========================================================================
+    // HOVER ICON DOWNLOAD LISTENER
+    // Listen for download requests from the hover icon in intercept.js (MAIN world)
+    // =========================================================================
+
+    window.addEventListener('__mediaDownloaderImageDownload', (event) => {
+        const url = event.detail?.url;
+        console.log('[MediaDownloader:bridge] Received __mediaDownloaderImageDownload event, url:', url ? url.substring(0, 80) : 'NONE');
+
+        if (!url) {
+            console.warn('[MediaDownloader:bridge] No URL in event detail');
+            return;
+        }
+
+        if (!isExtensionValid()) {
+            console.warn('[MediaDownloader:bridge] Extension context invalid, cannot send message');
+            return;
+        }
+
+        try {
+            chrome.runtime.sendMessage({
+                action: 'download-single-image',
+                url: url,
+                options: { useStoredPrefix: true }
+            }).then(response => {
+                console.log('[MediaDownloader:bridge] Download response:', response);
+            }).catch(err => {
+                console.error('[MediaDownloader:bridge] Message send error:', err);
+            });
+        } catch (e) {
+            console.error('[MediaDownloader:bridge] Exception sending message:', e);
+        }
+    });
+
     console.log('[MediaDownloader:bridge] ✓ Bridge script loaded and listening');
 })();

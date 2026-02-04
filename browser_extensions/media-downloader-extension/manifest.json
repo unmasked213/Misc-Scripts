@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Media Downloader",
-  "version": "1.7",
+  "version": "1.11",
   "description": "Download images and videos from selected tabs",
   "permissions": [
     "tabs",
@@ -12,7 +12,8 @@
     "webRequest",
     "webNavigation",
     "offscreen",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -29,7 +30,7 @@
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["bridge.js"],
+      "js": ["bridge.js", "shortcuts.js"],
       "run_at": "document_start",
       "world": "ISOLATED"
     }

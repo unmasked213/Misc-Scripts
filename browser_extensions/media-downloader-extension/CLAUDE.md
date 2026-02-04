@@ -18,8 +18,9 @@ media-downloader-extension/
 ├── background.js       # Service worker - core coordinator
 ├── popup.html          # Popup UI markup
 ├── popup.js            # Popup logic and state management
-├── intercept.js        # Content script (MAIN world) - fetch/XHR hooks
+├── intercept.js        # Content script (MAIN world) - fetch/XHR hooks, hover icon
 ├── bridge.js           # Content script (ISOLATED world) - message relay
+├── shortcuts.js        # Content script (ISOLATED world) - custom keyboard shortcuts
 ├── offscreen.html      # Offscreen document for HLS segment assembly
 ├── hls.js              # HLS.js library (unused - kept for reference)
 ├── icons/              # Extension icons (16, 48, 128px)
@@ -32,10 +33,11 @@ media-downloader-extension/
 
 | File | World/Context | Purpose |
 |------|---------------|---------|
-| `background.js` | Service Worker | Download management, state, HLS parsing, webRequest monitoring |
-| `popup.js` | Extension Popup | UI interactions, settings persistence, progress display |
-| `intercept.js` | MAIN (page context) | Hook fetch/XHR, watch video play events |
+| `background.js` | Service Worker | Download management, state, HLS parsing, context menu, webRequest |
+| `popup.js` | Extension Popup | UI interactions, settings, image/video modals, shortcut config |
+| `intercept.js` | MAIN (page context) | Hook fetch/XHR, watch video play events, hover download icon |
 | `bridge.js` | ISOLATED (extension context) | Relay CustomEvents from intercept.js to background |
+| `shortcuts.js` | ISOLATED (extension context) | Custom keyboard shortcut handler |
 | `offscreen.html` | Offscreen Document | Blob assembly, DOM operations unavailable in SW |
 
 ### Content Script Architecture
@@ -87,6 +89,11 @@ The extension uses a two-world content script pattern:
 // Download actions
 { action: 'download-selected-tabs', options: { closeTabs, skipDuplicates, interval, prefix } }
 { action: 'download-current-tab', options: {...} }
+{ action: 'download-single-image', url, options: { prefix, useStoredPrefix } }
+
+// Image actions
+{ action: 'scan-images', tabIds: [...] }
+{ action: 'download-specific-images', images: [...], options: {...} }
 
 // Video actions
 { action: 'scan-videos', tabIds: [...] }
@@ -269,7 +276,7 @@ See `media-downloader-roadmap.md` for:
 
 ### Manifest Permissions
 ```json
-["tabs", "downloads", "storage", "activeTab", "scripting", "webRequest", "offscreen"]
+["tabs", "downloads", "storage", "activeTab", "scripting", "webRequest", "offscreen", "contextMenus"]
 ```
 
 ### Key Storage Keys
@@ -277,8 +284,19 @@ See `media-downloader-roadmap.md` for:
 - `skipDuplicates` - boolean - Deduplication setting
 - `interval` - number - Delay between downloads (ms)
 - `prefix` - string - Filename prefix
+- `customShortcuts` - object - User-configured keyboard shortcuts
 - `img_dl_*` - Download history entries
 
 ### Keyboard Shortcuts
-- `Alt+Shift+S` - Download from selected tabs
-- `Alt+Shift+D` - Download from current tab
+- `Alt+Shift+S` - Download from selected tabs (browser-level, configurable in chrome://extensions/shortcuts)
+- `Alt+Shift+D` - Download from current tab (browser-level)
+- Custom shortcuts configurable in popup UI:
+  - "Download hovered image" - Downloads image under cursor
+  - "Open image picker" - Opens image selection modal
+
+### Context Menu
+- Right-click any image → "Download Image" - Downloads the image directly
+
+### Hover Icon
+- Floating download button appears when hovering over images 300x300px or larger
+- Click the icon to download the image immediately

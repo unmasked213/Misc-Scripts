@@ -2518,6 +2518,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse(result);
             } else if (message.action === 'hls-progress') {
                 debugLog(`HLS progress: ${message.status} - ${message.current}/${message.total}`);
+            } else if (message.action === 'download-single-image') {
+                // Single image download (from hover icon or shortcuts)
+                const result = await downloadSingleImage(
+                    message.url,
+                    sender.tab?.id,
+                    message.options || {}
+                );
+                sendResponse(result);
+            } else if (message.action === 'scan-images') {
+                // Scan for images in tabs (for image selection modal)
+                const result = await scanImagesFromTabs(message.tabIds);
+                sendResponse(result);
+            } else if (message.action === 'download-specific-images') {
+                // Download selected images from modal
+                const result = await downloadSpecificImages(message.images, message.options);
+                sendResponse(result);
             } else {
                 sendResponse({ error: 'Unknown action' });
             }
@@ -2547,7 +2563,367 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.runtime.onInstalled.addListener(async () => {
     debugLog('Extension installed/updated');
     await DownloadHistory.load();
+
+    // Create context menu for images
+    chrome.contextMenus.create({
+        id: 'download-image',
+        title: 'Download Image',
+        contexts: ['image']
+    });
+
+    debugLog('Context menus created');
 });
+
+// =============================================================================
+// CONTEXT MENU HANDLERS
+// =============================================================================
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === 'download-image') {
+        debugLog(`Context menu download: ${info.srcUrl}`);
+        const options = await getStoredOptions();
+        await downloadSingleImage(info.srcUrl, tab?.id, {
+            prefix: options.prefix,
+            skipDuplicates: options.skipDuplicates
+        });
+    }
+});
+
+/**
+ * Download a single image (used by context menu and hover icon)
+ */
+/**
+ * Download a single image using the same logic as core downloadFromTab
+ * Reuses the proven fetch + process pattern for DRY consistency
+ */
+async function downloadSingleImage(imageUrl, tabId, options = {}) {
+    // Load settings
+    let prefix = options.prefix || '';
+    if (options.useStoredPrefix) {
+        const stored = await getStoredOptions();
+        prefix = stored.prefix || '';
+    }
+    const skipDuplicates = options.skipDuplicates !== false;
+
+    debugLog(`Downloading single image: ${imageUrl.substring(0, 60)}...`);
+
+    try {
+        await DownloadHistory.load();
+
+        // Check URL duplicate first
+        if (skipDuplicates && DownloadHistory.isDuplicateUrl(imageUrl)) {
+            debugLog(`Duplicate URL skipped: ${imageUrl}`);
+            return { success: false, reason: 'duplicate_url' };
+        }
+
+        // Use the same fetch approach as downloadFromTab (service worker fetch)
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+            debugLog(`Fetch failed: ${response.status}`);
+            return { success: false, reason: 'fetch_failed', status: response.status };
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        const mimeType = Utils.detectMimeType(bytes);
+
+        // Check perceptual duplicate (same as downloadFromTab)
+        const perceptualHash = await PerceptualHash.generate(arrayBuffer);
+        if (skipDuplicates && perceptualHash) {
+            const dupCheck = DownloadHistory.checkDuplicate(imageUrl, perceptualHash);
+            if (dupCheck.isDuplicate) {
+                debugLog(`Duplicate content skipped: ${imageUrl}`);
+                return { success: false, reason: 'duplicate_content' };
+            }
+        }
+
+        // Build filename (same as downloadFromTab)
+        let filename = Utils.createFilename(imageUrl);
+        filename = Utils.updateExtension(filename, mimeType);
+        if (prefix) {
+            filename = prefix + '_' + filename;
+        }
+
+        // Convert to data URL for download (same as downloadFromTab)
+        let binary = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk);
+        }
+        const base64 = btoa(binary);
+        const dataUrl = `data:${mimeType};base64,${base64}`;
+
+        const downloadId = await chrome.downloads.download({
+            url: dataUrl,
+            filename: filename,
+            saveAs: false
+        });
+
+        debugLog(`Single image download started: ${filename} (ID: ${downloadId})`);
+        await DownloadHistory.add(imageUrl, filename, perceptualHash);
+
+        return { success: true, filename, downloadId };
+    } catch (error) {
+        debugLog(`Single image download error: ${error.message}`);
+        return { success: false, reason: 'error', error: error.message };
+    }
+}
+
+// =============================================================================
+// IMAGE SCANNING AND BATCH DOWNLOAD
+// =============================================================================
+
+/**
+ * Scan tabs for images and return metadata
+ */
+async function scanImagesFromTabs(tabIds) {
+    const allImages = [];
+    const seenUrls = new Set();
+
+    for (const tabId of tabIds) {
+        try {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: () => {
+                    const images = [];
+                    const seen = new Set();
+
+                    // Collect all img elements
+                    document.querySelectorAll('img').forEach(img => {
+                        const src = img.currentSrc || img.src;
+                        if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
+                        if (seen.has(src)) return;
+                        seen.add(src);
+
+                        // Get best quality version
+                        let bestSrc = src;
+
+                        // Check srcset for highest resolution
+                        if (img.srcset) {
+                            const items = img.srcset.split(',');
+                            let maxWidth = img.naturalWidth || 0;
+                            for (const item of items) {
+                                const parts = item.trim().split(/\s+/);
+                                if (parts.length >= 2 && parts[1].endsWith('w')) {
+                                    const w = parseInt(parts[1]);
+                                    if (w > maxWidth) {
+                                        maxWidth = w;
+                                        bestSrc = parts[0];
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check data attributes for full-size URLs
+                        const dataAttrs = ['data-src', 'data-original', 'data-large-file', 'data-full-src', 'data-zoom-src'];
+                        for (const attr of dataAttrs) {
+                            const val = img.getAttribute(attr);
+                            if (val && (val.startsWith('http') || val.startsWith('/'))) {
+                                bestSrc = val;
+                                break;
+                            }
+                        }
+
+                        // Convert to absolute URL
+                        if (!bestSrc.startsWith('http')) {
+                            try {
+                                bestSrc = new URL(bestSrc, window.location.href).href;
+                            } catch (e) {
+                                return;
+                            }
+                        }
+
+                        images.push({
+                            url: bestSrc,
+                            width: img.naturalWidth || 0,
+                            height: img.naturalHeight || 0,
+                            alt: img.alt || ''
+                        });
+                    });
+
+                    // Also check background images on elements
+                    document.querySelectorAll('[style*="background"]').forEach(el => {
+                        const style = getComputedStyle(el);
+                        const match = style.backgroundImage?.match(/url\(['"]?(.*?)['"]?\)/);
+                        if (match && match[1] && !match[1].startsWith('data:') && !match[1].startsWith('blob:')) {
+                            let url = match[1];
+                            if (!url.startsWith('http')) {
+                                try {
+                                    url = new URL(url, window.location.href).href;
+                                } catch (e) {
+                                    return;
+                                }
+                            }
+                            if (!seen.has(url)) {
+                                seen.add(url);
+                                images.push({
+                                    url: url,
+                                    width: 0,
+                                    height: 0,
+                                    alt: 'Background image',
+                                    isBackground: true
+                                });
+                            }
+                        }
+                    });
+
+                    return images;
+                }
+            });
+
+            const tabImages = results?.[0]?.result || [];
+
+            // Add unique images to results
+            for (const img of tabImages) {
+                if (seenUrls.has(img.url)) continue;
+                seenUrls.add(img.url);
+
+                // Estimate format from URL
+                const ext = img.url.match(/\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?|$)/i);
+                img.format = ext ? ext[1].toLowerCase().replace('jpeg', 'jpg') : 'jpg';
+
+                // Rough filesize estimate based on dimensions
+                if (img.width && img.height) {
+                    // Very rough: 3 bytes per pixel / 10 compression
+                    img.filesize = Math.round((img.width * img.height * 3) / 10);
+                } else {
+                    img.filesize = 0;
+                }
+
+                img.tabId = tabId;
+                allImages.push(img);
+            }
+
+        } catch (error) {
+            debugLog(`Error scanning images from tab ${tabId}:`, error.message);
+        }
+    }
+
+    // Sort by size (largest first)
+    allImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+    debugLog(`Image scan complete: ${allImages.length} images found`);
+
+    return { images: allImages };
+}
+
+/**
+ * Download specific images selected from the modal
+ */
+async function downloadSpecificImages(images, options = {}) {
+    const interval = options.interval || 500;
+    const prefix = options.prefix || '';
+    const skipDuplicates = options.skipDuplicates !== false;
+
+    DownloadState.reset();
+    DownloadState.isRunning = true;
+    DownloadState.total = images.length;
+
+    await DownloadHistory.load();
+
+    debugLog(`Starting batch image download: ${images.length} images`);
+
+    for (const image of images) {
+        if (!DownloadState.isRunning) break;
+
+        // Handle pause
+        while (DownloadState.isPaused && DownloadState.isRunning) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (!DownloadState.isRunning) break;
+
+        const imageUrl = typeof image === 'string' ? image : image.url;
+
+        try {
+            // Check URL duplicate
+            if (skipDuplicates && DownloadHistory.isDuplicateUrl(imageUrl)) {
+                debugLog(`Duplicate URL skipped: ${imageUrl.substring(0, 50)}...`);
+                DownloadState.processed++;
+                DownloadState.skipped++;
+                DownloadState.duplicates++;
+                continue;
+            }
+
+            const response = await fetch(imageUrl);
+            if (!response.ok) {
+                debugLog(`Fetch failed for ${imageUrl.substring(0, 50)}...: ${response.status}`);
+                DownloadState.processed++;
+                DownloadState.skipped++;
+                continue;
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            const mimeType = Utils.detectMimeType(bytes);
+
+            // Check perceptual duplicate
+            const perceptualHash = await PerceptualHash.generate(arrayBuffer);
+            if (skipDuplicates && perceptualHash) {
+                const dupCheck = DownloadHistory.checkDuplicate(imageUrl, perceptualHash);
+                if (dupCheck.isDuplicate) {
+                    debugLog(`Duplicate content skipped: ${imageUrl.substring(0, 50)}...`);
+                    DownloadState.processed++;
+                    DownloadState.skipped++;
+                    DownloadState.duplicates++;
+                    continue;
+                }
+            }
+
+            let filename = Utils.createFilename(imageUrl);
+            filename = Utils.updateExtension(filename, mimeType);
+            if (prefix) {
+                filename = prefix + '_' + filename;
+            }
+
+            // Convert to data URL
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                const chunk = bytes.subarray(i, i + chunkSize);
+                binary += String.fromCharCode.apply(null, chunk);
+            }
+            const base64 = btoa(binary);
+            const dataUrl = `data:${mimeType};base64,${base64}`;
+
+            await chrome.downloads.download({
+                url: dataUrl,
+                filename: filename,
+                saveAs: false
+            });
+
+            await DownloadHistory.add(imageUrl, filename, perceptualHash);
+
+            DownloadState.processed++;
+            DownloadState.success++;
+            debugLog(`Downloaded: ${filename}`);
+
+        } catch (error) {
+            debugLog(`Error downloading ${imageUrl.substring(0, 50)}...: ${error.message}`);
+            DownloadState.processed++;
+            DownloadState.skipped++;
+        }
+
+        // Delay between downloads
+        if (DownloadState.isRunning && DownloadState.processed < images.length) {
+            await new Promise(resolve => setTimeout(resolve, interval));
+        }
+    }
+
+    const result = {
+        success: DownloadState.success,
+        skipped: DownloadState.skipped,
+        duplicates: DownloadState.duplicates,
+        total: DownloadState.total,
+        cancelled: !DownloadState.isRunning
+    };
+
+    DownloadState.reset();
+    debugLog(`Batch download complete: ${result.success} downloaded, ${result.skipped} skipped`);
+
+    return result;
+}
 
 // Load history on startup
 chrome.runtime.onStartup.addListener(async () => {

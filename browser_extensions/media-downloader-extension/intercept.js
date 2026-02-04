@@ -583,4 +583,379 @@
 
     console.log('[MediaDownloader:intercept] ✓ Video interceptor ready (play-gated mode)');
     console.log('[MediaDownloader:intercept] Patches applied: play(), src setter, fetch, XHR');
+
+    // =========================================================================
+    // HOVER DOWNLOAD ICON FOR IMAGES
+    // Shows a floating download button when hovering over large images (300x300+)
+    // =========================================================================
+
+    (function initHoverIcon() {
+        const MIN_SIZE = 300;
+        const ICON_SIZE = 36;
+        let currentIcon = null;
+        let currentImage = null;
+        let currentImageUrl = null;  // Store URL separately for reliability
+        let iconVisible = false;
+
+        // Create icon element with inline styles to avoid CSS conflicts
+        function createIcon() {
+            const icon = document.createElement('div');
+            icon.id = '__mediaDownloaderHoverIcon';
+            icon.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 15c0 2.828 0 4.243.879 5.121C4.757 21 6.172 21 9 21h6c2.828 0 4.243 0 5.121-.879C21 19.243 21 17.828 21 15"/>
+                    <path d="M12 3v13m0 0l4-4.375M12 16l-4-4.375"/>
+                </svg>
+            `;
+
+            // Apply all styles inline to avoid site CSS conflicts
+            Object.assign(icon.style, {
+                position: 'absolute',
+                width: ICON_SIZE + 'px',
+                height: ICON_SIZE + 'px',
+                backgroundColor: 'rgba(30, 171, 208, 0.95)',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: '2147483647',
+                opacity: '0',
+                transition: 'opacity 150ms ease, transform 100ms ease',
+                pointerEvents: 'none',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                transform: 'scale(0.9)'
+            });
+
+            const svg = icon.querySelector('svg');
+            Object.assign(svg.style, {
+                width: '20px',
+                height: '20px',
+                color: 'white',
+                pointerEvents: 'none'  // Ensure clicks pass through to parent
+            });
+
+            // Handle click to download
+            icon.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                // Use stored URL (more reliable than currentImage.src)
+                const urlToDownload = currentImageUrl || (currentImage && currentImage.src);
+
+                debugLog('Hover icon clicked, URL:', urlToDownload ? urlToDownload.substring(0, 60) : 'none');
+
+                if (urlToDownload) {
+                    // Visual feedback - turn green
+                    icon.style.backgroundColor = 'rgba(0, 162, 103, 0.95)';
+                    icon.style.transform = 'scale(1.1)';
+
+                    // Dispatch download event to bridge
+                    const event = new CustomEvent('__mediaDownloaderImageDownload', {
+                        detail: { url: urlToDownload }
+                    });
+                    console.log('[MediaDownloader:intercept] Dispatching download event with URL:', urlToDownload.substring(0, 80));
+                    window.dispatchEvent(event);
+
+                    // Reset after animation
+                    setTimeout(() => {
+                        icon.style.backgroundColor = 'rgba(30, 171, 208, 0.95)';
+                        icon.style.transform = 'scale(1)';
+                    }, 300);
+                } else {
+                    console.warn('[MediaDownloader:intercept] Hover icon clicked but no URL available! currentImage:', currentImage, 'currentImageUrl:', currentImageUrl);
+                }
+            }, true);
+
+            // Prevent click from propagating
+            icon.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }, true);
+
+            document.body.appendChild(icon);
+            return icon;
+        }
+
+        /**
+         * Find the best (largest) version of an image by checking:
+         * 1. Parent <a> tag href (if it links to an image)
+         * 2. data-* attributes for full-size URLs
+         * 3. srcset for highest resolution
+         * 4. Fall back to img.src
+         */
+        function getBestImageUrl(img) {
+            const candidates = [];
+            const imgSrc = img.src;
+
+            // Helper to check if URL looks like an image
+            function isImageUrl(url) {
+                if (!url) return false;
+                // Check extension
+                if (/\.(jpe?g|png|gif|webp|avif|bmp|svg)(\?|#|$)/i.test(url)) return true;
+                // Check common image path patterns
+                if (/\/(images?|photos?|pics?|media|uploads?|static)\//i.test(url)) return true;
+                return false;
+            }
+
+            // 1. Check parent <a> tag for link to full-size image
+            const parentLink = img.closest('a');
+            if (parentLink && parentLink.href) {
+                const href = parentLink.href;
+                // Only use if it looks like an image URL (not a page)
+                if (isImageUrl(href) && href !== imgSrc) {
+                    candidates.push({ url: href, source: 'parent-link', priority: 10 });
+                }
+            }
+
+            // 2. Check data attributes for full-size URLs
+            const dataAttrs = [
+                'data-src', 'data-original', 'data-full', 'data-large',
+                'data-zoom-src', 'data-zoom', 'data-hires', 'data-highres',
+                'data-full-src', 'data-large-src', 'data-original-src',
+                'data-lazy-src', 'data-srcset-full', 'data-image',
+                'data-big', 'data-big-src', 'data-max-src'
+            ];
+            for (const attr of dataAttrs) {
+                const val = img.getAttribute(attr);
+                if (val && val !== imgSrc && (val.startsWith('http') || val.startsWith('/'))) {
+                    let url = val;
+                    if (!url.startsWith('http')) {
+                        try {
+                            url = new URL(url, window.location.href).href;
+                        } catch (e) {
+                            continue;
+                        }
+                    }
+                    // Prioritize attrs that explicitly mention "full", "large", "original"
+                    const priority = /full|large|original|hires|highres|big|max/i.test(attr) ? 9 : 7;
+                    candidates.push({ url, source: attr, priority });
+                }
+            }
+
+            // 3. Check srcset for highest resolution
+            if (img.srcset) {
+                const items = img.srcset.split(',');
+                let maxWidth = 0;
+                let bestSrcsetUrl = null;
+
+                for (const item of items) {
+                    const parts = item.trim().split(/\s+/);
+                    if (parts.length >= 2) {
+                        const url = parts[0];
+                        const descriptor = parts[1];
+
+                        // Handle width descriptors (e.g., "800w")
+                        if (descriptor.endsWith('w')) {
+                            const w = parseInt(descriptor);
+                            if (w > maxWidth) {
+                                maxWidth = w;
+                                bestSrcsetUrl = url;
+                            }
+                        }
+                        // Handle pixel density descriptors (e.g., "2x")
+                        else if (descriptor.endsWith('x')) {
+                            const density = parseFloat(descriptor);
+                            const estimatedWidth = density * 1000; // Rough estimate
+                            if (estimatedWidth > maxWidth) {
+                                maxWidth = estimatedWidth;
+                                bestSrcsetUrl = url;
+                            }
+                        }
+                    }
+                }
+
+                if (bestSrcsetUrl && bestSrcsetUrl !== imgSrc) {
+                    let url = bestSrcsetUrl;
+                    if (!url.startsWith('http')) {
+                        try {
+                            url = new URL(url, window.location.href).href;
+                        } catch (e) {
+                            url = null;
+                        }
+                    }
+                    if (url) {
+                        candidates.push({ url, source: 'srcset', priority: 8 });
+                    }
+                }
+            }
+
+            // 4. Try URL manipulation for common thumbnail patterns
+            if (imgSrc) {
+                // Remove common thumbnail suffixes/patterns
+                const patterns = [
+                    // Size suffixes: image-150x150.jpg -> image.jpg
+                    { regex: /-\d+x\d+(\.[a-z]+)$/i, replace: '$1' },
+                    // Thumbnail folders: /thumbs/image.jpg -> /images/image.jpg
+                    { regex: /\/thumb(nail)?s?\//i, replace: '/images/' },
+                    { regex: /\/th\//i, replace: '/full/' },
+                    { regex: /\/small\//i, replace: '/large/' },
+                    { regex: /\/sm\//i, replace: '/lg/' },
+                    // Size query params: ?w=200 -> remove
+                    { regex: /[?&](w|h|width|height|size|s)=\d+/gi, replace: '' },
+                    // Resize services patterns
+                    { regex: /\/resize\/\d+x\d+\//i, replace: '/' },
+                    { regex: /_thumb(\.[a-z]+)$/i, replace: '$1' },
+                    { regex: /_small(\.[a-z]+)$/i, replace: '$1' },
+                    { regex: /_medium(\.[a-z]+)$/i, replace: '_large$1' },
+                ];
+
+                for (const pattern of patterns) {
+                    if (pattern.regex.test(imgSrc)) {
+                        const modifiedUrl = imgSrc.replace(pattern.regex, pattern.replace);
+                        if (modifiedUrl !== imgSrc) {
+                            candidates.push({ url: modifiedUrl, source: 'url-pattern', priority: 5 });
+                        }
+                    }
+                }
+            }
+
+            // Sort by priority (highest first) and return best candidate
+            candidates.sort((a, b) => b.priority - a.priority);
+
+            if (candidates.length > 0) {
+                debugLog('Best image candidates:', candidates.map(c => `${c.source}: ${c.url.substring(0, 50)}`));
+                return candidates[0].url;
+            }
+
+            // Fallback to original src
+            return imgSrc;
+        }
+
+        function showIcon(img, rect) {
+            if (!currentIcon) {
+                currentIcon = createIcon();
+            }
+
+            currentImage = img;
+            currentImageUrl = getBestImageUrl(img);  // Get best quality URL
+
+            debugLog('Hover icon shown, best URL:', currentImageUrl ? currentImageUrl.substring(0, 60) : 'none');
+
+            // Position in top-right corner with padding
+            const padding = 8;
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+
+            currentIcon.style.left = (rect.right + scrollX - ICON_SIZE - padding) + 'px';
+            currentIcon.style.top = (rect.top + scrollY + padding) + 'px';
+            currentIcon.style.opacity = '1';
+            currentIcon.style.pointerEvents = 'auto';
+            currentIcon.style.transform = 'scale(1)';
+            iconVisible = true;
+        }
+
+        function hideIcon(clearReferences = true) {
+            if (currentIcon && iconVisible) {
+                currentIcon.style.opacity = '0';
+                currentIcon.style.pointerEvents = 'none';
+                currentIcon.style.transform = 'scale(0.9)';
+                iconVisible = false;
+                // Only clear references if requested (not when transitioning to icon)
+                if (clearReferences) {
+                    currentImage = null;
+                    currentImageUrl = null;
+                }
+            }
+        }
+
+        function isLargeImage(img) {
+            // Check natural dimensions (actual image size)
+            const naturalOk = img.naturalWidth >= MIN_SIZE && img.naturalHeight >= MIN_SIZE;
+            // Also check display dimensions as fallback
+            const displayOk = img.offsetWidth >= MIN_SIZE && img.offsetHeight >= MIN_SIZE;
+            return naturalOk || displayOk;
+        }
+
+        function isValidImageSrc(src) {
+            if (!src) return false;
+            // Skip data URLs, blob URLs, and tracking pixels
+            if (src.startsWith('data:')) return false;
+            if (src.startsWith('blob:')) return false;
+            if (src.includes('pixel') || src.includes('beacon') || src.includes('tracking')) return false;
+            return true;
+        }
+
+        // Mouse tracking for images
+        document.addEventListener('mouseover', (e) => {
+            const img = e.target.closest('img');
+
+            if (img && isLargeImage(img) && isValidImageSrc(img.src)) {
+                const rect = img.getBoundingClientRect();
+                showIcon(img, rect);
+            }
+        }, true);
+
+        document.addEventListener('mouseout', (e) => {
+            const img = e.target.closest('img');
+            const relatedTarget = e.relatedTarget;
+
+            // Check if moving to the icon itself
+            const movingToIcon = relatedTarget && (
+                relatedTarget.id === '__mediaDownloaderHoverIcon' ||
+                relatedTarget.closest('#__mediaDownloaderHoverIcon')
+            );
+
+            // Don't hide at all if moving to the icon - preserve URL!
+            if (movingToIcon) {
+                return;
+            }
+
+            // Don't hide if staying within the same image
+            if (relatedTarget && relatedTarget.closest('img') === currentImage) {
+                return;
+            }
+
+            if (img || (currentIcon && !currentIcon.contains(relatedTarget))) {
+                hideIcon(true);  // Clear references when truly leaving
+            }
+        }, true);
+
+        // Keep icon visible when hovering the icon itself
+        document.addEventListener('mouseover', (e) => {
+            if (e.target.id === '__mediaDownloaderHoverIcon' ||
+                e.target.closest('#__mediaDownloaderHoverIcon')) {
+                if (currentIcon) {
+                    currentIcon.style.opacity = '1';
+                    currentIcon.style.pointerEvents = 'auto';
+                    iconVisible = true;
+                    // currentImageUrl should still be set from when we hovered the image
+                    debugLog('Mouse over icon, URL preserved:', currentImageUrl ? currentImageUrl.substring(0, 40) : 'NONE');
+                }
+            }
+        }, true);
+
+        // Hide icon when leaving the icon (and not going back to the image)
+        document.addEventListener('mouseout', (e) => {
+            const isFromIcon = e.target.id === '__mediaDownloaderHoverIcon' ||
+                e.target.closest('#__mediaDownloaderHoverIcon');
+
+            if (!isFromIcon) return;
+
+            const relatedTarget = e.relatedTarget;
+
+            // Check if moving back to the current image
+            if (relatedTarget && relatedTarget.closest('img') === currentImage) {
+                return;  // Stay visible, don't clear
+            }
+
+            // Truly leaving - hide and clear
+            hideIcon(true);
+        }, true);
+
+        // Hide icon when scrolling (position becomes stale)
+        let scrollTimeout = null;
+        window.addEventListener('scroll', () => {
+            if (iconVisible) {
+                hideIcon();
+            }
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                // Could re-show if still hovering, but simpler to just hide
+            }, 100);
+        }, true);
+
+        console.log('[MediaDownloader:intercept] ✓ Hover icon handler initialized (min size:', MIN_SIZE, 'px)');
+    })();
 })();

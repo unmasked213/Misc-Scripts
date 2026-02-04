@@ -177,7 +177,7 @@ async function downloadSelected() {
         return;
     }
 
-    // Image mode - existing logic
+    // Image mode - download from selected tabs (original core functionality)
     isPaused = false;
 
     // Get tab count for progress
@@ -321,10 +321,16 @@ mediaTypeBtns.forEach(btn => {
 
 function updateButtonText() {
     const btnText = downloadSelectedBtn.querySelector('.btn__text');
+    const pickerBtn = document.getElementById('image-picker-btn');
+
     if (currentMediaMode === 'videos') {
         btnText.innerHTML = 'List videos';
+        // Hide image picker in video mode
+        if (pickerBtn) pickerBtn.style.display = 'none';
     } else {
         btnText.innerHTML = `<span id="tab-count">${tabCountEl.textContent}</span> file<span id="tab-plural">${tabPluralEl.textContent}</span>`;
+        // Show image picker in image mode
+        if (pickerBtn) pickerBtn.style.display = 'flex';
     }
 }
 
@@ -697,3 +703,353 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('unload', () => {
     cleanupPreviewBlob();
 });
+
+// =============================================================================
+// IMAGE MODE - Selection Modal
+// =============================================================================
+
+// Image modal elements
+const imageModal = document.getElementById('image-modal');
+const imageModalClose = document.getElementById('image-modal-close');
+const imageModalDownload = document.getElementById('image-modal-download');
+const imageList = document.getElementById('image-list');
+const imageSelectionInfo = document.getElementById('image-selection-info');
+const imageTotalCount = document.getElementById('image-total-count');
+const imageSelectAll = document.getElementById('image-select-all');
+const imageDeselectAll = document.getElementById('image-deselect-all');
+const imageFilterBtns = document.querySelectorAll('.modal__filter-btn');
+
+let detectedImages = [];
+let selectedImageUrls = new Set();
+let currentImageFilter = 'all';
+
+// Show image modal and scan for images
+async function showImageModal() {
+    imageModal.classList.add('active');
+    imageList.innerHTML = '<div class="modal__empty">Scanning for images...</div>';
+    detectedImages = [];
+    selectedImageUrls.clear();
+    updateImageSelectionInfo();
+
+    try {
+        const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
+        const tabIds = tabs.map(t => t.id);
+
+        const response = await chrome.runtime.sendMessage({
+            action: 'scan-images',
+            tabIds: tabIds
+        });
+
+        detectedImages = response.images || [];
+        renderImageList();
+
+    } catch (error) {
+        imageList.innerHTML = `<div class="modal__empty">Error: ${error.message}</div>`;
+    }
+}
+
+function hideImageModal() {
+    imageModal.classList.remove('active');
+}
+
+function renderImageList() {
+    const filtered = filterImages(detectedImages, currentImageFilter);
+
+    if (filtered.length === 0) {
+        imageList.innerHTML = `<div class="modal__empty">No ${currentImageFilter === 'all' ? '' : currentImageFilter + ' '}images found</div>`;
+        imageTotalCount.textContent = '0 images';
+        return;
+    }
+
+    imageTotalCount.textContent = `${filtered.length} image${filtered.length !== 1 ? 's' : ''}`;
+
+    imageList.innerHTML = filtered.map((img, idx) => {
+        const isSelected = selectedImageUrls.has(img.url);
+        const sizeClass = getSizeClass(img.width, img.height);
+
+        return `
+            <div class="image-card ${isSelected ? 'selected' : ''}"
+                 data-url="${escapeHtml(img.url)}"
+                 data-index="${idx}">
+                <img class="image-card__img"
+                     src="${escapeHtml(img.url)}"
+                     alt=""
+                     loading="lazy"
+                     onerror="this.style.background='var(--ui-elevated-2)'">
+                <div class="image-card__checkbox">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                </div>
+                ${img.width && img.height ? `<span class="image-card__size-badge ${sizeClass}">${img.width}×${img.height}</span>` : ''}
+                <div class="image-card__meta">
+                    <span>${img.filesize ? formatFilesize(img.filesize) : ''}</span>
+                    <span>${img.format?.toUpperCase() || 'IMG'}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    updateImageSelectionInfo();
+}
+
+function filterImages(images, filter) {
+    if (filter === 'all') return images;
+    if (filter === 'large') return images.filter(img => img.width >= 1000 || img.height >= 1000);
+    if (filter === 'medium') return images.filter(img =>
+        (img.width >= 500 || img.height >= 500) &&
+        (img.width < 1000 && img.height < 1000)
+    );
+    return images;
+}
+
+function getSizeClass(width, height) {
+    if (!width || !height) return '';
+    if (width >= 1000 || height >= 1000) return 'large';
+    if (width >= 500 || height >= 500) return 'medium';
+    return '';
+}
+
+function updateImageSelectionInfo() {
+    const count = selectedImageUrls.size;
+    imageSelectionInfo.textContent = count > 0 ? `${count} selected` : 'Select images to download';
+    imageModalDownload.disabled = count === 0;
+}
+
+// Image modal event listeners
+imageModalClose.addEventListener('click', hideImageModal);
+
+imageModal.addEventListener('click', (e) => {
+    if (e.target === imageModal) hideImageModal();
+});
+
+imageList.addEventListener('click', (e) => {
+    const card = e.target.closest('.image-card');
+    if (card) {
+        const url = card.dataset.url;
+        if (selectedImageUrls.has(url)) {
+            selectedImageUrls.delete(url);
+            card.classList.remove('selected');
+        } else {
+            selectedImageUrls.add(url);
+            card.classList.add('selected');
+        }
+        updateImageSelectionInfo();
+    }
+});
+
+imageSelectAll.addEventListener('click', () => {
+    const filtered = filterImages(detectedImages, currentImageFilter);
+    filtered.forEach(img => selectedImageUrls.add(img.url));
+    renderImageList();
+});
+
+imageDeselectAll.addEventListener('click', () => {
+    selectedImageUrls.clear();
+    renderImageList();
+});
+
+imageFilterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        imageFilterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentImageFilter = btn.dataset.filter;
+        renderImageList();
+    });
+});
+
+imageModalDownload.addEventListener('click', async () => {
+    if (selectedImageUrls.size === 0) return;
+
+    const selectedImages = detectedImages.filter(img => selectedImageUrls.has(img.url));
+
+    hideImageModal();
+
+    showProgress(true);
+    updateProgress(0, selectedImages.length, false);
+    startPolling();
+
+    try {
+        const response = await chrome.runtime.sendMessage({
+            action: 'download-specific-images',
+            images: selectedImages,
+            options: {
+                skipDuplicates: skipDuplicatesToggle.checked,
+                interval: getIntervalMs(),
+                prefix: prefixInput.value.trim()
+            }
+        });
+
+        stopPolling();
+
+        if (response.error) {
+            showStatus(response.error, 'error');
+        } else {
+            const { success, skipped, duplicates, cancelled } = response;
+            let msg = `${success} downloaded`;
+            if (duplicates > 0) msg += `, ${duplicates} dupes`;
+            if (skipped - duplicates > 0) msg += `, ${skipped - duplicates} failed`;
+            if (cancelled) msg += ' (cancelled)';
+            showStatus(msg, success > 0 ? 'success' : '');
+        }
+
+        showProgress(false);
+
+    } catch (error) {
+        stopPolling();
+        showStatus('Error: ' + error.message, 'error');
+        showProgress(false);
+    }
+});
+
+// Handle Escape for image modal too
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && imageModal.classList.contains('active')) {
+        hideImageModal();
+    }
+});
+
+// Image picker button (separate from main download button)
+const imagePickerBtn = document.getElementById('image-picker-btn');
+if (imagePickerBtn) {
+    imagePickerBtn.addEventListener('click', async () => {
+        if (currentMediaMode === 'images') {
+            await showImageModal();
+        }
+    });
+}
+
+// =============================================================================
+// KEYBOARD SHORTCUTS CONFIGURATION
+// =============================================================================
+
+const shortcutInputs = {
+    'shortcut-hover': 'download-hovered',
+    'shortcut-picker': 'open-image-modal'
+};
+
+let recordingShortcut = null;
+
+async function loadShortcuts() {
+    try {
+        const result = await chrome.storage.local.get(['customShortcuts']);
+        const shortcuts = result.customShortcuts || {};
+
+        for (const [inputId, actionId] of Object.entries(shortcutInputs)) {
+            const input = document.getElementById(inputId);
+            if (input && shortcuts[actionId]) {
+                input.value = formatShortcut(shortcuts[actionId]);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading shortcuts:', error);
+    }
+}
+
+function formatShortcut(shortcut) {
+    if (!shortcut || !shortcut.key) return '';
+    const parts = [];
+    if (shortcut.modifiers.includes('ctrl')) parts.push('Ctrl');
+    if (shortcut.modifiers.includes('alt')) parts.push('Alt');
+    if (shortcut.modifiers.includes('shift')) parts.push('Shift');
+    // Clean up key name for display
+    let keyName = shortcut.key;
+    keyName = keyName.replace('Key', '').replace('Digit', '');
+    parts.push(keyName);
+    return parts.join('+');
+}
+
+function parseKeyEvent(e) {
+    const modifiers = [];
+    if (e.ctrlKey) modifiers.push('ctrl');
+    if (e.altKey) modifiers.push('alt');
+    if (e.shiftKey) modifiers.push('shift');
+
+    // Ignore modifier-only presses
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return null;
+
+    return {
+        key: e.code,
+        modifiers,
+        enabled: true
+    };
+}
+
+async function saveShortcut(actionId, shortcut) {
+    try {
+        const result = await chrome.storage.local.get(['customShortcuts']);
+        const shortcuts = result.customShortcuts || {};
+        shortcuts[actionId] = shortcut;
+        await chrome.storage.local.set({ customShortcuts: shortcuts });
+
+        // Notify content scripts to update
+        const tabs = await chrome.tabs.query({});
+        for (const tab of tabs) {
+            try {
+                await chrome.tabs.sendMessage(tab.id, {
+                    action: 'update-shortcuts',
+                    shortcuts
+                });
+            } catch (e) {
+                // Tab may not have content script
+            }
+        }
+    } catch (error) {
+        console.error('Error saving shortcut:', error);
+    }
+}
+
+// Set up shortcut input listeners
+for (const [inputId, actionId] of Object.entries(shortcutInputs)) {
+    const input = document.getElementById(inputId);
+    if (!input) continue;
+
+    input.addEventListener('click', () => {
+        if (recordingShortcut) {
+            document.getElementById(recordingShortcut)?.classList.remove('recording');
+        }
+        recordingShortcut = inputId;
+        input.classList.add('recording');
+        input.value = 'Press keys...';
+    });
+
+    input.addEventListener('keydown', async (e) => {
+        if (recordingShortcut !== inputId) return;
+        e.preventDefault();
+
+        const shortcut = parseKeyEvent(e);
+        if (!shortcut) return;
+
+        if (e.key === 'Escape') {
+            input.classList.remove('recording');
+            recordingShortcut = null;
+            await loadShortcuts();
+            return;
+        }
+
+        input.value = formatShortcut(shortcut);
+        input.classList.remove('recording');
+        recordingShortcut = null;
+
+        await saveShortcut(actionId, shortcut);
+    });
+
+    input.addEventListener('blur', () => {
+        if (recordingShortcut === inputId) {
+            input.classList.remove('recording');
+            recordingShortcut = null;
+            loadShortcuts();
+        }
+    });
+
+    const clearBtn = document.getElementById('clear-' + inputId);
+    if (clearBtn) {
+        clearBtn.addEventListener('click', async () => {
+            input.value = '';
+            await saveShortcut(actionId, null);
+        });
+    }
+}
+
+// Load shortcuts on popup open
+loadShortcuts();
