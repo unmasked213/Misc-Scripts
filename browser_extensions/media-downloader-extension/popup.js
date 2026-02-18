@@ -47,6 +47,61 @@ let candidateVideos = [];
 let selectedVideoUrls = new Set();
 let currentPreviewBlobUrl = null;
 
+// =============================================================================
+// DETACHED / PERSISTENT WINDOW MODE (early init - must run before tab queries)
+// =============================================================================
+
+let isDetached = false;
+let detachedSourceWindowId = null;
+let detachedTabIds = [];
+
+(function detectDetachedMode() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('detached') === '1') {
+        isDetached = true;
+        document.body.classList.add('is-detached');
+        detachedSourceWindowId = parseInt(params.get('sourceWindowId')) || null;
+        const tabIdsStr = params.get('tabIds') || '';
+        detachedTabIds = tabIdsStr ? tabIdsStr.split(',').map(Number).filter(n => !isNaN(n)) : [];
+    }
+})();
+
+/**
+ * Get the tabs to operate on.
+ * In normal popup mode: queries highlighted tabs in the current window.
+ * In detached mode: queries highlighted tabs from the source browser window,
+ * falling back to the tab IDs captured at detach time.
+ */
+async function getTargetTabs() {
+    if (isDetached && detachedSourceWindowId) {
+        try {
+            const tabs = await chrome.tabs.query({
+                highlighted: true,
+                windowId: detachedSourceWindowId
+            });
+            if (tabs.length > 0) return tabs;
+        } catch (e) {
+            // Source window may have been closed
+        }
+
+        // Fall back to the tab IDs captured at detach time
+        if (detachedTabIds.length > 0) {
+            try {
+                const tabs = await Promise.all(
+                    detachedTabIds.map(id => chrome.tabs.get(id).catch(() => null))
+                );
+                return tabs.filter(Boolean);
+            } catch (e) {
+                // tabs no longer exist
+            }
+        }
+
+        return [];
+    }
+
+    return chrome.tabs.query({ highlighted: true, currentWindow: true });
+}
+
 // Video modal elements
 const videoModal = document.getElementById('video-modal');
 const modalClose = document.getElementById('modal-close');
@@ -104,7 +159,7 @@ async function saveSettings() {
 // Update selected tab count
 async function updateTabCount() {
     try {
-        const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
+        const tabs = await getTargetTabs();
         const count = tabs.length;
         tabCountEl.textContent = count;
         tabPluralEl.textContent = count === 1 ? '' : 's';
@@ -181,7 +236,7 @@ async function downloadSelected() {
     isPaused = false;
 
     // Get tab count for progress
-    const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
+    const tabs = await getTargetTabs();
     if (tabs.length === 0) {
         showStatus('No tabs selected', 'error');
         showProgress(true); // Show the error in progress area
@@ -293,7 +348,13 @@ downloadSelectedBtn.addEventListener('click', downloadSelected);
 pauseBtn.addEventListener('click', togglePause);
 cancelBtn.addEventListener('click', cancelDownload);
 closeTabsToggle.addEventListener('change', saveSettings);
-skipDuplicatesToggle.addEventListener('change', saveSettings);
+skipDuplicatesToggle.addEventListener('change', () => {
+    saveSettings();
+    // Re-render image grid if modal is open (to show/hide dupes)
+    if (imageModal.classList.contains('active') && detectedImages.length > 0) {
+        renderImageList();
+    }
+});
 intervalInput.addEventListener('change', saveSettings);
 intervalUpBtn.addEventListener('click', incrementInterval);
 intervalDownBtn.addEventListener('click', decrementInterval);
@@ -345,7 +406,7 @@ async function showVideoModal() {
     hidePlayer();
 
     try {
-        const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
+        const tabs = await getTargetTabs();
         const tabIds = tabs.map(t => t.id);
 
         // Request videos with candidates included for display
@@ -702,6 +763,7 @@ document.addEventListener('keydown', (e) => {
 // Cleanup on popup close
 window.addEventListener('unload', () => {
     cleanupPreviewBlob();
+    stopImageScanPolling();
 });
 
 // =============================================================================
@@ -722,34 +784,130 @@ const imageFilterBtns = document.querySelectorAll('.modal__filter-btn');
 let detectedImages = [];
 let selectedImageUrls = new Set();
 let currentImageFilter = 'all';
+let duplicateImageUrls = new Set();
+let imageScanInterval = null;
+let imageScanTabIds = [];  // Tab IDs being scanned (cached for re-scans)
+let knownImageUrls = new Set();  // Accumulated URLs to prevent removal
 
 // Show image modal and scan for images
 async function showImageModal() {
+    document.body.classList.add('image-modal-open');
     imageModal.classList.add('active');
     imageList.innerHTML = '<div class="modal__empty">Scanning for images...</div>';
     detectedImages = [];
     selectedImageUrls.clear();
+    duplicateImageUrls.clear();
+    knownImageUrls.clear();
     updateImageSelectionInfo();
 
     try {
-        const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
-        const tabIds = tabs.map(t => t.id);
+        const tabs = await getTargetTabs();
+        imageScanTabIds = tabs.map(t => t.id);
 
         const response = await chrome.runtime.sendMessage({
             action: 'scan-images',
-            tabIds: tabIds
+            tabIds: imageScanTabIds
         });
 
         detectedImages = response.images || [];
+
+        // Track all known URLs so they persist across re-scans
+        detectedImages.forEach(img => knownImageUrls.add(img.url));
+
+        // Check which images are already downloaded (dupes)
+        if (detectedImages.length > 0) {
+            const urls = detectedImages.map(img => img.url);
+            const dupeResponse = await chrome.runtime.sendMessage({
+                action: 'check-duplicate-urls',
+                urls: urls
+            });
+            duplicateImageUrls = new Set(dupeResponse.duplicates || []);
+        }
+
         renderImageList();
+
+        // Start live scanning to pick up newly loaded images
+        startImageScanPolling();
 
     } catch (error) {
         imageList.innerHTML = `<div class="modal__empty">Error: ${error.message}</div>`;
     }
 }
 
+// Live image scan polling - re-scans page periodically and merges new images
+function startImageScanPolling() {
+    stopImageScanPolling();
+    imageScanInterval = setInterval(rescanForNewImages, 2000);
+    // Show live indicator
+    const liveIndicator = document.getElementById('image-live-indicator');
+    if (liveIndicator) liveIndicator.classList.add('active');
+}
+
+function stopImageScanPolling() {
+    if (imageScanInterval) {
+        clearInterval(imageScanInterval);
+        imageScanInterval = null;
+    }
+    const liveIndicator = document.getElementById('image-live-indicator');
+    if (liveIndicator) liveIndicator.classList.remove('active');
+}
+
+async function rescanForNewImages() {
+    // Don't scan if modal is closed
+    if (!imageModal.classList.contains('active')) {
+        stopImageScanPolling();
+        return;
+    }
+
+    try {
+        const response = await chrome.runtime.sendMessage({
+            action: 'scan-images',
+            tabIds: imageScanTabIds
+        });
+
+        const freshImages = response.images || [];
+        let newCount = 0;
+
+        // Merge new images into the accumulated list (additive only)
+        for (const img of freshImages) {
+            if (!knownImageUrls.has(img.url)) {
+                knownImageUrls.add(img.url);
+                detectedImages.push(img);
+                newCount++;
+            }
+        }
+
+        // If new images were found, check dupes and re-render
+        if (newCount > 0) {
+            // Check dupes for newly found URLs
+            const newUrls = freshImages
+                .filter(img => !duplicateImageUrls.has(img.url))
+                .map(img => img.url);
+
+            if (newUrls.length > 0) {
+                const dupeResponse = await chrome.runtime.sendMessage({
+                    action: 'check-duplicate-urls',
+                    urls: newUrls
+                });
+                const newDupes = dupeResponse.duplicates || [];
+                newDupes.forEach(url => duplicateImageUrls.add(url));
+            }
+
+            // Re-sort by size (largest first) after adding new ones
+            detectedImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+            renderImageList();
+        }
+    } catch (error) {
+        // Silently ignore scan errors during polling (extension might be reloaded)
+        console.warn('Image rescan error:', error);
+    }
+}
+
 function hideImageModal() {
+    stopImageScanPolling();
     imageModal.classList.remove('active');
+    document.body.classList.remove('image-modal-open');
 }
 
 function renderImageList() {
@@ -774,8 +932,7 @@ function renderImageList() {
                 <img class="image-card__img"
                      src="${escapeHtml(img.url)}"
                      alt=""
-                     loading="lazy"
-                     onerror="this.style.background='var(--ui-elevated-2)'">
+                     loading="lazy">
                 <div class="image-card__checkbox">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <polyline points="20 6 9 17 4 12"/>
@@ -790,17 +947,31 @@ function renderImageList() {
         `;
     }).join('');
 
+    // Attach error handlers for broken images (CSP forbids inline onerror)
+    imageList.querySelectorAll('.image-card__img').forEach(img => {
+        img.addEventListener('error', () => {
+            img.style.background = 'var(--ui-elevated-2)';
+        });
+    });
+
     updateImageSelectionInfo();
 }
 
 function filterImages(images, filter) {
-    if (filter === 'all') return images;
-    if (filter === 'large') return images.filter(img => img.width >= 1000 || img.height >= 1000);
-    if (filter === 'medium') return images.filter(img =>
+    let result = images;
+
+    // Hide already-downloaded images when skip dupes is on
+    if (skipDuplicatesToggle.checked && duplicateImageUrls.size > 0) {
+        result = result.filter(img => !duplicateImageUrls.has(img.url));
+    }
+
+    if (filter === 'all') return result;
+    if (filter === 'large') return result.filter(img => img.width >= 1000 || img.height >= 1000);
+    if (filter === 'medium') return result.filter(img =>
         (img.width >= 500 || img.height >= 500) &&
         (img.width < 1000 && img.height < 1000)
     );
-    return images;
+    return result;
 }
 
 function getSizeClass(width, height) {
@@ -1053,3 +1224,39 @@ for (const [inputId, actionId] of Object.entries(shortcutInputs)) {
 
 // Load shortcuts on popup open
 loadShortcuts();
+
+// =============================================================================
+// DETACHED WINDOW - Button handlers (state & getTargetTabs defined at top)
+// =============================================================================
+
+const pinBtn = document.getElementById('pin-btn');
+
+// Pin button - detach to persistent window (only in normal popup mode)
+if (pinBtn && !isDetached) {
+    pinBtn.addEventListener('click', async () => {
+        try {
+            const currentWindow = await chrome.windows.getCurrent();
+            await chrome.runtime.sendMessage({
+                action: 'detach-to-window',
+                sourceWindowId: currentWindow.id
+            });
+            window.close();
+        } catch (error) {
+            console.error('Error detaching to window:', error);
+        }
+    });
+}
+
+// Close button in detached mode (replaces the hidden pin button)
+if (isDetached && pinBtn) {
+    const closeDetachedBtn = document.createElement('button');
+    closeDetachedBtn.className = 'header__pin';
+    closeDetachedBtn.title = 'Close persistent window';
+    closeDetachedBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+    `;
+    closeDetachedBtn.addEventListener('click', () => window.close());
+    pinBtn.parentNode.insertBefore(closeDetachedBtn, pinBtn);
+}

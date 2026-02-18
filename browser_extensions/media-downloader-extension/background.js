@@ -2526,6 +2526,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.options || {}
                 );
                 sendResponse(result);
+            } else if (message.action === 'detach-to-window') {
+                // Open popup.html in a persistent detached window
+                // Capture the source browser window and its highlighted tabs
+                // so the detached window knows which tabs to scan
+                const sourceWindowId = message.sourceWindowId;
+                let tabIds = [];
+                if (sourceWindowId) {
+                    const tabs = await chrome.tabs.query({ highlighted: true, windowId: sourceWindowId });
+                    tabIds = tabs.map(t => t.id);
+                }
+
+                const sourceWindow = sourceWindowId
+                    ? await chrome.windows.get(sourceWindowId)
+                    : await chrome.windows.getCurrent();
+                const width = 460;
+                const height = 650;
+                // Position near the top-right of the source window
+                const left = Math.max(0, (sourceWindow.left + sourceWindow.width) - width - 20);
+                const top = sourceWindow.top + 60;
+
+                const params = new URLSearchParams({
+                    detached: '1',
+                    sourceWindowId: String(sourceWindowId || ''),
+                    tabIds: tabIds.join(',')
+                });
+
+                chrome.windows.create({
+                    url: chrome.runtime.getURL('popup.html?' + params.toString()),
+                    type: 'popup',
+                    width: width,
+                    height: height,
+                    left: left,
+                    top: top,
+                    focused: true
+                });
+                sendResponse({ ok: true });
+            } else if (message.action === 'check-duplicate-urls') {
+                // Check which URLs are already in download history
+                await DownloadHistory.load();
+                const dupeUrls = (message.urls || []).filter(url => DownloadHistory.isDuplicateUrl(url));
+                sendResponse({ duplicates: dupeUrls });
             } else if (message.action === 'scan-images') {
                 // Scan for images in tabs (for image selection modal)
                 const result = await scanImagesFromTabs(message.tabIds);
