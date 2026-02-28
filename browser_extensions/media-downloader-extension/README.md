@@ -17,7 +17,12 @@ A Chrome/Brave browser extension for batch downloading images and videos from mu
 | **Smart Detection** | Finds the best quality version of media on pages |
 | **Video Interception** | Captures video URLs from fetch/XHR and play events |
 | **Network Monitoring** | Passive capture of video requests via webRequest API |
+| **Image Picker Grid** | Browse and select specific images from any page in a grid view |
+| **Detached Window** | Pop out the image picker into a persistent window |
 | **Keyboard Shortcuts** | Quick download without opening the popup |
+| **Custom Shortcuts** | Configure your own key combinations for hover-download and image picker |
+| **Context Menu** | Right-click any image to download it directly |
+| **Hover Icon** | Floating download button on images 300x300px and larger |
 | **Pause/Resume/Cancel** | Full control over batch downloads |
 | **Tab Management** | Optionally close tabs after downloading |
 | **Filename Prefix** | Add custom prefix to downloaded files |
@@ -86,9 +91,35 @@ Select videos from the list and click Download. HLS streams are automatically as
 | `Alt+Shift+S` | Download from all selected tabs |
 | `Alt+Shift+D` | Download from current tab only |
 
-Customize shortcuts at:
+Customize browser-level shortcuts at:
 - Chrome: `chrome://extensions/shortcuts`
 - Brave: `brave://extensions/shortcuts`
+
+### Custom Shortcuts
+
+Configure additional shortcuts in the popup's settings section:
+
+| Action | Description |
+|--------|-------------|
+| **Download hovered image** | Downloads the image currently under your cursor |
+| **Open image picker** | Opens the image selection grid |
+
+### Context Menu
+
+Right-click any image on a page to see **"Download Image"** option, which downloads the image directly.
+
+### Hover Icon
+
+When you hover over an image that's at least 300x300 pixels, a small download icon appears. Click it to download the image immediately.
+
+### Image Picker
+
+Click the image picker button in the popup to open a grid view of all images on the current page. You can:
+- Browse thumbnails of all detected images
+- Select specific images to download
+- Sort by newest, largest, or smallest
+- Filter out duplicates
+- Pop out into a detached persistent window
 
 ---
 
@@ -210,6 +241,7 @@ The perceptual hash algorithm:
 | `scripting` | Inject detection scripts |
 | `webRequest` | Passively monitor video network requests |
 | `offscreen` | Assemble HLS segments outside service worker |
+| `contextMenus` | Right-click "Download Image" option |
 | `<all_urls>` | Fetch media from any site |
 
 ---
@@ -262,6 +294,7 @@ See `media-downloader-roadmap.md` for the full development plan.
 
 | Version | Changes |
 |---------|---------|
+| 1.17 | Image picker grid view, detached window mode, custom keyboard shortcuts, context menu downloads, hover download icon |
 | 1.3 | HLS stream download support, offscreen document for segment assembly |
 | 1.2 | Video mode with DOM scanning, network interception, fetch/XHR hooks |
 | 1.1 | Added filename prefix option, popup UI improvements |

@@ -23,9 +23,11 @@ Misc-Scripts/
 ├── README.md                          # High-level overview with links to all scripts
 ├── batch/                             # Windows batch scripts for system automation
 │   ├── clean_ghosts.bat              # Kill duplicate AI assistant/browser processes
-│   └── mp3 converter/
-│       ├── any2mp3.bat               # Convert audio files to MP3 using FFmpeg
-│       └── README.md
+│   ├── mp3 converter/
+│   │   ├── any2mp3.bat               # Convert audio files to MP3 using FFmpeg
+│   │   └── README.md
+│   └── rotate_display/
+│       └── rotate-display.bat        # Toggle display orientation (landscape/portrait)
 ├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
 │   ├── CLAUDE.md                     # Extension development guidelines
 │   ├── README.md                     # User-facing documentation
@@ -34,8 +36,9 @@ Misc-Scripts/
 │       ├── background.js             # Service worker for downloads
 │       ├── popup.html                # Popup UI
 │       ├── popup.js                  # Popup logic
-│       ├── intercept.js              # Content script (MAIN world) - fetch/XHR hooks
+│       ├── intercept.js              # Content script (MAIN world) - fetch/XHR hooks, hover icon
 │       ├── bridge.js                 # Content script (ISOLATED world) - message relay
+│       ├── shortcuts.js             # Content script (ISOLATED world) - custom keyboard shortcuts
 │       ├── offscreen.html            # Offscreen document for HLS segment assembly
 │       ├── icons/                    # Extension icons
 │       ├── README.md                 # Extension documentation
@@ -67,6 +70,7 @@ Misc-Scripts/
 │   │   ├── ha_dashboard_launcher.py  # Home Assistant dashboard window
 │   │   └── README.md
 │   ├── media_stats/
+│   │   ├── dir_tree.py               # Generate markdown directory trees
 │   │   ├── folder_stats.py           # Analyze folder sizes and file counts
 │   │   ├── image_stats.py            # Categorize images by resolution/size
 │   │   ├── README.md
@@ -75,10 +79,12 @@ Misc-Scripts/
 │   │   ├── content_to_imitate.txt    # Text input file
 │   │   ├── mimic_keystrokes.py       # Simulate human typing
 │   │   └── README.md
-│   └── minimize_windows/
-│       ├── minimize_windows.py       # Auto-minimize windows by rules
-│       ├── MinimizeWindow.ps1        # PowerShell alternative
-│       └── README.md
+│   ├── minimize_windows/
+│   │   ├── minimize_windows.py       # Auto-minimize windows by rules
+│   │   ├── MinimizeWindow.ps1        # PowerShell alternative
+│   │   └── README.md
+│   └── Playlist Builder/
+│       └── playlist_generator.py     # Create .m3u playlists with sorting options
 └── typescript/                        # TypeScript/React UI components
     ├── meta_prompt_creator.tsx       # Advanced markdown UI component
     └── meta_prompt_creator_simplified.tsx
@@ -96,8 +102,9 @@ Misc-Scripts/
 |------|---------|-------------|
 | `clean_ghosts.bat` | Kill duplicate AI assistant (Claude, ChatGPT, Cursor) and browser processes | Double-click or CLI |
 | `mp3 converter/any2mp3.bat` | Convert audio files (M4A, OPUS) to MP3 using FFmpeg | Double-click or CLI |
+| `rotate_display/rotate-display.bat` | Toggle display between Landscape and Portrait orientation | Double-click or CLI |
 
-**Dependencies**: FFmpeg for `any2mp3.bat`, Windows built-in `tasklist`/`taskkill` for `clean_ghosts.bat`.
+**Dependencies**: FFmpeg for `any2mp3.bat`, Windows built-in `tasklist`/`taskkill` for `clean_ghosts.bat`. `rotate-display.bat` uses embedded C#/P/Invoke via PowerShell to call Windows display APIs directly (bypasses AMD Adrenalin driver issues).
 
 ---
 
@@ -112,9 +119,11 @@ Misc-Scripts/
 **Key Files**:
 - `media-downloader-extension/manifest.json` - Extension manifest (Manifest V3)
 - `media-downloader-extension/background.js` - Service worker with download logic, HLS parsing, and perceptual hashing
-- `media-downloader-extension/popup.html` - Popup UI with progress tracking and video selection modal
-- `media-downloader-extension/intercept.js` - Content script (MAIN world) for hooking fetch/XHR and video events
+- `media-downloader-extension/popup.html` - Popup UI with image grid picker, progress tracking, video selection modal, and shortcut config
+- `media-downloader-extension/popup.js` - Popup logic with detached/persistent window mode and image picker grid
+- `media-downloader-extension/intercept.js` - Content script (MAIN world) for hooking fetch/XHR, video events, and hover download icon
 - `media-downloader-extension/bridge.js` - Content script (ISOLATED world) for message relay
+- `media-downloader-extension/shortcuts.js` - Content script (ISOLATED world) for custom keyboard shortcuts
 - `media-downloader-extension/offscreen.html` - Offscreen document for HLS segment assembly
 - `browser_extensions/CLAUDE.md` - Development guidelines for extensions
 
@@ -129,7 +138,8 @@ Misc-Scripts/
 | Folder | Main Script | Purpose |
 |--------|-------------|---------|
 | `Duplicate image detection V2/` | `server.py` | Flask web UI for finding duplicate/similar images using perceptual hashing |
-| `media_stats/` | `folder_stats.py`, `image_stats.py`, `video_stats.py` | Analyze media collections by size, resolution, codec, etc. |
+| `media_stats/` | `folder_stats.py`, `image_stats.py`, `video_stats.py`, `dir_tree.py` | Analyze media collections and generate directory trees |
+| `Playlist Builder/` | `playlist_generator.py` | Create .m3u playlists from media files with sorting options |
 | `minimize_windows/` | `minimize_windows.py` | Auto-minimize windows matching configurable rules |
 | `Mimic keystrokes (auto typing)/` | `mimic_keystrokes.py` | Simulate realistic human typing |
 | `ha_dashboard_launcher/` | `ha_dashboard_launcher.py` | Display Home Assistant dashboard in native window |
@@ -139,6 +149,8 @@ Misc-Scripts/
 - `Duplicate image detection V2/dupefinder.py` - Core detection engine with perceptual hashing
 - `Duplicate image detection V2/index.html` - Modern web UI with light/dark themes
 - `Duplicate image detection V2/requirements.txt` - Dependencies: opencv-python-headless, numpy, pillow, flask, flask-cors
+- `media_stats/dir_tree.py` - Markdown directory tree generator with box-drawing characters
+- `Playlist Builder/playlist_generator.py` - M3U playlist generator with ffprobe metadata sorting
 
 **Common Dependencies**:
 - `Pillow` - Image processing
@@ -429,6 +441,35 @@ All browser userscripts in this repository MUST follow these rules exactly.
 
 ## Changelog
 
+### 2026-02-28
+- **Added** `batch/rotate_display/rotate-display.bat`
+  - Toggle any display between Landscape and Portrait orientation
+  - Uses embedded C#/P/Invoke to call Windows display APIs directly
+  - Bypasses AMD Adrenalin driver issues with display rotation
+  - Prompts for display number, applies change immediately
+- **Added** `python/Playlist Builder/playlist_generator.py`
+  - Create .m3u playlists from media files (videos, images, audio, or all)
+  - Sort by name, size, date, duration, or bitrate
+  - ffprobe integration for accurate duration/bitrate metadata (falls back to file size)
+  - Detects existing playlists and offers rescan or re-sort
+  - Double-click friendly with interactive menus
+- **Added** `python/media_stats/dir_tree.py`
+  - Generate markdown directory trees with box-drawing characters
+  - Folder icons with inline file/folder counts and sizes
+  - Boxed header with scan metadata (date, depth, elapsed time)
+  - Configurable max depth, hidden file toggle, CLI args
+  - Interactive truncation prompt for directories exceeding 5000 files
+  - Excludes common noise directories (node_modules, .git, __pycache__, etc.)
+  - Progress indicator during scan
+- **Updated** Media Downloader extension to v1.17
+  - Added image picker grid view in popup with thumbnail loading
+  - Added detached/persistent window mode for the image picker
+  - Added custom keyboard shortcuts (configurable in popup UI)
+  - Added `shortcuts.js` content script for custom shortcut handling
+  - Added context menu for right-click image download
+  - Added hover download icon for images 300x300px+
+  - New file: `shortcuts.js`
+
 ### 2026-01-02
 - **Added** `auto_load_more_toggle.user.js` userscript
   - Toggle-based auto-clicker for "Load More" buttons
@@ -437,7 +478,7 @@ All browser userscripts in this repository MUST follow these rules exactly.
   - Navigation safety to prevent accidental page changes
   - Multi-button selection overlay when multiple candidates found
   - Configurable cycle delay with persistence
-- **Updated** Media Downloader extension to v1.7
+- **Updated** Media Downloader extension (video support milestone)
   - Added video download support (MP4, WebM, MOV, AVI, OGV)
   - Added HLS (.m3u8) stream download with automatic segment assembly
   - Added fetch/XHR interception for video URL capture

@@ -1,6 +1,6 @@
 # Media Statistics Tools
 
-This folder contains three tools that help you understand your media collection - photos, videos, and general files. Think of them as your collection's report card, showing you what you have and how it's organized.
+This folder contains four tools that help you understand your media collection and file structure. Think of them as your collection's report card, showing you what you have and how it's organized.
 
 ## The Tools
 
@@ -34,11 +34,21 @@ Analyzes all your videos, showing you their quality, length, codec, HDR/SDR stat
 - Seeing how long your videos typically are
 - Understanding storage needs for videos
 
+### 4. Directory Tree (`dir_tree.py`)
+
+**What it does:**
+Generates a visual markdown directory tree of any folder, showing the complete file and folder structure with box-drawing characters.
+
+**Best for:**
+- Documenting a project's file structure
+- Getting an overview of how folders are organized
+- Sharing folder layouts with others
+
 ---
 
 ## How to set up
 
-### All three tools need Python
+### All four tools need Python
 
 1. Go to https://www.python.org/downloads/
 2. Download Python 3.9 or newer
@@ -57,7 +67,7 @@ You need FFmpeg installed:
 2. Download and install for Windows
 3. Make sure it's added to your system PATH
 
-**For folder_stats.py:**
+**For folder_stats.py and dir_tree.py:**
 No extra packages needed!
 
 **Optional (for even faster scanning on very large folders):**
@@ -131,6 +141,35 @@ python folder_stats.py --path "C:\Users\YourName\Documents" --limit 10
 - **Bitrate analysis:** Median bitrate for each resolution category
 - Uses multiprocessing for parallel analysis of multiple videos
 - Skips corrupt or unreadable files automatically
+
+### Directory Tree
+
+**Easy way:**
+1. Copy `dir_tree.py` into the folder you want to map
+2. Double-click it
+3. A markdown file is saved in the same folder
+
+**Advanced way (command line):**
+```
+python dir_tree.py --path "C:\Users\YourName\Projects" --depth 4 --hidden
+```
+
+**What you'll get:**
+- A markdown file named `[foldername]_dir_tree.md` saved in the target folder
+- Visual tree with box-drawing connectors and folder icons
+- Inline counts and sizes for each directory
+- Summary footer with total folders, files, and size
+- Boxed header with scan date, elapsed time, and depth setting
+
+**Options:**
+- `--path` - Folder to scan (defaults to script location)
+- `--depth` - Maximum depth to display (0 = unlimited)
+- `--hidden` - Include hidden files and folders (dotfiles)
+
+**Notes:**
+- Automatically skips noise directories like `node_modules`, `.git`, `__pycache__`, etc.
+- If a directory has more than 5000 files, you'll be asked whether to list them all or show a summary
+- Only reads files, never modifies anything
 
 ---
 

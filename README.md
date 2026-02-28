@@ -21,10 +21,12 @@ Practical utility scripts for Windows users: automation, media processing, brows
 ### Batch
 - **[clean_ghosts.bat](batch/clean_ghosts.bat)** - Kill duplicate AI assistant/browser processes
 - **[any2mp3.bat](batch/mp3%20converter/)** - Convert audio to MP3
+- **[rotate-display.bat](batch/rotate_display/)** - Toggle display orientation (bypasses AMD Adrenalin)
 
 ### Python
 - **[Duplicate Image Finder](python/Duplicate%20image%20detection%20V2/)** - Web UI for finding similar images
 - **[Media Stats](python/media_stats/)** - Analyze folders, images, and videos by size/resolution/codec
+- **[Playlist Builder](python/Playlist%20Builder/)** - Create sorted .m3u playlists from media files
 - **[Minimize Windows](python/minimize_windows/)** - Auto-minimize windows by title keywords
 - **[Mimic Keystrokes](python/Mimic%20keystrokes%20%28auto%20typing%29/)** - Simulate human typing
 - **[HA Dashboard Launcher](python/ha_dashboard_launcher/)** - Home Assistant in a native window

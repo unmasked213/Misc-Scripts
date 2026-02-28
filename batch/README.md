@@ -47,6 +47,25 @@ See [mp3 converter/README.md](mp3%20converter/README.md) for detailed setup inst
 
 ---
 
+### [rotate_display/rotate-display.bat](rotate_display/)
+
+Toggles a display between Landscape and Portrait orientation using direct Windows API calls. Created as a workaround for AMD Adrenalin driver refusing to rotate displays properly.
+
+**What it does:**
+- Prompts for a display number (1, 2, 3, etc.)
+- Toggles between Landscape (0°) and Portrait (270°) orientation
+- Uses embedded C#/P/Invoke code to call `ChangeDisplaySettingsEx` directly
+- Bypasses GPU driver software entirely
+
+**Usage:**
+1. Double-click to run
+2. Enter the display number to rotate
+3. Orientation toggles immediately
+
+**Dependencies:** None (uses built-in PowerShell and Windows API)
+
+---
+
 ## Status Message Format
 
 All batch scripts use consistent status prefixes:
