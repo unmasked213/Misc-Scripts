@@ -22,11 +22,10 @@ media-downloader-extension/
 ├── bridge.js           # Content script (ISOLATED world) - message relay
 ├── shortcuts.js        # Content script (ISOLATED world) - custom keyboard shortcuts
 ├── offscreen.html      # Offscreen document for HLS segment assembly
-├── hls.js              # HLS.js library (unused - kept for reference)
 ├── icons/              # Extension icons (16, 48, 128px)
-└── docs/
-    ├── README.md       # User documentation
-    └── media-downloader-roadmap.md  # Development roadmap
+├── README.md           # User documentation
+├── CLAUDE.md           # This file - development guidelines
+└── media-downloader-roadmap.md  # Development roadmap
 ```
 
 ### Component Roles
@@ -276,7 +275,7 @@ See `media-downloader-roadmap.md` for:
 
 ### Manifest Permissions
 ```json
-["tabs", "downloads", "storage", "activeTab", "scripting", "webRequest", "offscreen", "contextMenus"]
+["tabs", "downloads", "storage", "activeTab", "scripting", "webRequest", "webNavigation", "offscreen", "declarativeNetRequest", "contextMenus"]
 ```
 
 ### Key Storage Keys

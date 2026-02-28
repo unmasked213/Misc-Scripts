@@ -27,7 +27,8 @@ Misc-Scripts/
 │   │   ├── any2mp3.bat               # Convert audio files to MP3 using FFmpeg
 │   │   └── README.md
 │   └── rotate_display/
-│       └── rotate-display.bat        # Toggle display orientation (landscape/portrait)
+│       ├── rotate-display.bat        # Toggle display orientation (landscape/portrait)
+│       └── rotate-display.cs         # Readable C# source for the embedded base64 payload
 ├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
 │   ├── CLAUDE.md                     # Extension development guidelines
 │   ├── README.md                     # User-facing documentation
