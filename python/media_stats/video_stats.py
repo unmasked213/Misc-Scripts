@@ -9,6 +9,11 @@ Usage (normal):
 Usage (advanced, terminal):
     python media_spec.py --details
     python media_spec.py --path "X:/Videos"   # hidden feature
+
+Performance notes:
+    - ffprobe calls are I/O-bound. This script uses a bounded thread pool to run many
+      ffprobe subprocesses concurrently on Windows without multiprocessing overhead.
+    - Override parallelism with env var MEDIA_SPEC_WORKERS (integer, 1-256).
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from pathlib import Path
 from collections import Counter, defaultdict
 from statistics import median
 from typing import Dict, Tuple, Optional
-from multiprocessing import Pool
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # UTF-8 everywhere (Windows-safe)
 os.environ["PYTHONUTF8"] = "1"
@@ -77,17 +82,13 @@ COMMON_RESOLUTIONS = {
     "8K vertical":     (4320, 7680),
 }
 
+# Subprocess flags for Windows - suppresses console window per ffprobe call
+# Set to 0 to disable if ffprobe fails silently on your system
+_CREATION_FLAGS = 0
+
 # -------------------------------
 # Utilities
 # -------------------------------
-
-
-def is_video_file(path: Path) -> bool:
-    try:
-        return path.suffix.lower() in VIDEO_EXTS
-    except (OSError, PermissionError):
-        return False
-
 
 
 def resolve_ffprobe(script_dir: Path) -> str:
@@ -183,15 +184,30 @@ def median_safe(values: list[float]) -> Optional[float]:
     vals = [v for v in values if v is not None]
     return median(vals) if vals else None
 
+
+
+def compute_probe_workers(file_count: int) -> int:
+    env = os.environ.get("MEDIA_SPEC_WORKERS", "").strip()
+    if env:
+        try:
+            w = int(env)
+            if 1 <= w <= 256:
+                return min(w, file_count)
+        except Exception:
+            pass
+    cpu = os.cpu_count() or 4
+    return min(file_count, max(cpu * 4, 32))
+
 # -------------------------------
 # ffprobe
 # -------------------------------
 
 
-def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
+def probe(ffprobe_cmd: str, file_path: Path, file_size: int) -> Optional[dict]:
     try:
         cmd = [
-            ffprobe_cmd, "-v", "quiet",
+            ffprobe_cmd,
+            "-v", "error",
             "-print_format", "json",
             "-show_streams", "-show_format",
             str(file_path),
@@ -203,14 +219,16 @@ def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
             text=True,
             timeout=FFPROBE_TIMEOUT_SEC,
             encoding="utf-8",
-            errors="replace",  # U1: safe replacement
+            errors="replace",
         )
-        if p.returncode != 0:
+        if p.returncode != 0 or not p.stdout:
+            print(f"\nDEBUG ffprobe exit={p.returncode} stdout_len={len(p.stdout) if p.stdout else 0}: {file_path}\n  stderr: {(p.stderr or '')[:300]}")
             return None
 
         data = json.loads(p.stdout or "{}")
         vstreams = [s for s in (data.get("streams") or []) if s.get("codec_type") == "video"]
         if not vstreams:
+            print(f"\nDEBUG no video streams found: {file_path}")
             return None
 
         vs = vstreams[0]
@@ -249,12 +267,12 @@ def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
 
         return {
             "path": str(file_path),
-            "size": file_path.stat().st_size if file_path.exists() else None,
+            "size": file_size,
             "resolution_bucket": res_bucket,
             "resolution": raw_res,
             "duration": duration,
             "duration_bucket": duration_bucket(duration) if duration is not None else "Unknown",
-            "size_bucket": size_bucket(file_path.stat().st_size) if file_path.exists() else "Unknown",
+            "size_bucket": size_bucket(file_size),
             "codec": codec,
             "bitrate": br,
             "fps": fps,
@@ -263,35 +281,50 @@ def probe(ffprobe_cmd: str, file_path: Path) -> Optional[dict]:
             "color_transfer": trns,
             "color_primaries": prim,
         }
-    except Exception:
+    except Exception as e:
+        print(f"\nDEBUG probe failed: {file_path}\n  {type(e).__name__}: {e}")
         return None
-
-
-def probe_worker(args: Tuple[str, Path]) -> Optional[dict]:
-    """Worker function for multiprocessing pool.
-
-    Takes (ffprobe_cmd, file_path) tuple and returns probe results.
-    """
-    ffprobe_cmd, file_path = args
-    return probe(ffprobe_cmd, file_path)
 
 # -------------------------------
 # Collection
 # -------------------------------
 
 
-def gather_files(target: Path) -> list[Path]:
-    files: list[Path] = []
-    try:
-        if target.is_file() and is_video_file(target):
-            files.append(target)
-        elif target.is_dir():
-            for p in target.rglob("*"):
-                if p.is_file() and is_video_file(p):
-                    files.append(p)
-    except Exception:
-        pass
-    return files
+def gather_files(target: Path) -> list[Tuple[Path, int]]:
+    """Walk directory tree, return (path, file_size) tuples for video files."""
+    results: list[Tuple[Path, int]] = []
+    video_exts = VIDEO_EXTS
+
+    if target.is_file():
+        if target.suffix.lower() in video_exts:
+            try:
+                results.append((target, target.stat().st_size))
+            except OSError:
+                pass
+        return results
+
+    if not target.is_dir():
+        return results
+
+    # os.walk is faster than Path.rglob on Windows - avoids constructing
+    # Path objects for every non-video file before discarding them
+    target_str = str(target)
+    for dirpath, _dirnames, filenames in os.walk(target_str):
+        for fname in filenames:
+            dot_pos = fname.rfind(".")
+            if dot_pos == -1:
+                continue
+            ext = fname[dot_pos:].lower()
+            if ext not in video_exts:
+                continue
+            full = os.path.join(dirpath, fname)
+            try:
+                sz = os.path.getsize(full)
+                results.append((Path(full), sz))
+            except OSError:
+                pass
+
+    return results
 
 # -------------------------------
 # Formatting helpers (GLOBAL alignment)
@@ -481,43 +514,47 @@ def main():
     target, show_details = parse_args(sys.argv, script_dir)
 
     try:
-        files = gather_files(target)
+        file_list = gather_files(target)
     except Exception as e:
         print(f"Failed to access {target}: {e}")
         input("\nPress Enter to exit...")
         return
 
-    if not files:
+    if not file_list:
         print(f"No video files found in {target.resolve()}")
         input("\nPress Enter to exit...")
         return
 
-    print(f"Scanning {len(files)} files in {target.resolve()} ...")
-    print(f"Using {os.cpu_count()} workers for parallel processing...")
+    total = len(file_list)
+    max_workers = compute_probe_workers(total)
 
-    skipped = []
+    print(f"Scanning {total} files in {target.resolve()} ...")
+    print(f"Using {max_workers} threads for parallel processing...")
+
     records = []
+    skipped = []
 
-    # Prepare arguments for worker function
-    worker_args = [(ffprobe_cmd, f) for f in files]
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Map futures to file paths for immediate identification on failure
+        future_to_path = {
+            executor.submit(probe, ffprobe_cmd, fpath, fsize): fpath
+            for fpath, fsize in file_list
+        }
 
-    # Use multiprocessing pool for parallel processing
-    with Pool(processes=os.cpu_count()) as pool:
-        for idx, result in enumerate(pool.imap_unordered(probe_worker, worker_args), start=1):
-            if result is not None:
-                records.append(result)
-            else:
-                # Find which file failed (result doesn't include path on failure)
-                # Track by counting processed files
-                pass  # File will be in skipped list based on None result
+        for idx, future in enumerate(as_completed(future_to_path), start=1):
+            path = future_to_path[future]
+            try:
+                result = future.result()
+                if result is not None:
+                    records.append(result)
+                else:
+                    skipped.append(str(path))
+            except Exception:
+                skipped.append(str(path))
 
-            if idx % 25 == 0 or idx == len(files):
-                sys.stdout.write(f"\rProgress: {idx}/{len(files)}")
+            if idx % 50 == 0 or idx == total:
+                sys.stdout.write(f"\rProgress: {idx}/{total}")
                 sys.stdout.flush()
-
-    # Identify skipped files by comparing processed records with original file list
-    processed_paths = {r["path"] for r in records}
-    skipped = [str(f) for f in files if str(f) not in processed_paths]
 
     print("\n")
     summarize_and_print(records, target)

@@ -2571,6 +2571,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // Scan for images in tabs (for image selection modal)
                 const result = await scanImagesFromTabs(message.tabIds);
                 sendResponse(result);
+            } else if (message.action === 'fetch-image-thumbs') {
+                // Generate thumbnails via background fetch (bypasses CORS)
+                const results = await generateThumbnailsBatch(message.urls || []);
+                sendResponse({ thumbnails: results });
             } else if (message.action === 'download-specific-images') {
                 // Download selected images from modal
                 const result = await downloadSpecificImages(message.images, message.options);
@@ -2716,7 +2720,106 @@ async function downloadSingleImage(imageUrl, tabId, options = {}) {
 // =============================================================================
 
 /**
- * Scan tabs for images and return metadata
+ * Normalize an image URL for deduplication purposes.
+ * Strips common size/quality parameters and dimension suffixes so that
+ * the same image at different resolutions maps to the same key.
+ */
+function normalizeImageUrl(url) {
+    try {
+        const u = new URL(url);
+        // Normalize protocol
+        u.protocol = 'https:';
+        // Remove common size/quality query parameters
+        const sizeParams = ['w', 'h', 'width', 'height', 'size', 'resize',
+                            'fit', 'crop', 'quality', 'q', 'dpr', 'auto',
+                            'fl', 'fm', 'format', 'maxwidth', 'maxheight',
+                            's', 'sz', 'thumb', 'thumbnail'];
+        for (const param of sizeParams) {
+            u.searchParams.delete(param);
+        }
+        // Cache-busting params
+        for (const p of ['v', '_', 't', 'cb', 'cache', 'ver', 'rev']) {
+            u.searchParams.delete(p);
+        }
+        // WordPress: -150x150.jpg → .jpg
+        u.pathname = u.pathname.replace(/-\d+x\d+(?=\.\w{3,4}$)/, '');
+        // WordPress: -scaled.jpg → .jpg
+        u.pathname = u.pathname.replace(/-scaled(?=\.\w{3,4}$)/, '');
+        // Shopify / CDN: _150x150.jpg → .jpg
+        u.pathname = u.pathname.replace(/_\d+x\d+(?=\.\w{3,4}$)/, '');
+        // Cloudflare Image Resizing: /cdn-cgi/image/.../
+        u.pathname = u.pathname.replace(/\/cdn-cgi\/image\/[^/]+\//, '/');
+        // CDN resize paths: /resize/WxH/ or /fit-in/WxH/ or /thumbs/
+        u.pathname = u.pathname.replace(/\/(resize|fit-in|thumb(nails?|s)?|crop)\/\d+x\d+\//, '/');
+        // Sort remaining params for consistency
+        u.searchParams.sort();
+        u.hash = '';
+        return u.href;
+    } catch (e) {
+        return url;
+    }
+}
+
+/**
+ * Generate thumbnail data-URLs for a batch of image URLs.
+ * Uses the service-worker's fetch (bypasses CORS via host_permissions)
+ * and OffscreenCanvas to produce small JPEG thumbnails.
+ */
+async function generateThumbnailsBatch(urls, concurrency = 6) {
+    const results = {};
+    const queue = [...urls];
+
+    async function processOne(url) {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+            if (!response.ok) { results[url] = null; return; }
+
+            const blob = await response.blob();
+            if (!blob.type || !blob.type.startsWith('image')) { results[url] = null; return; }
+
+            const bitmap = await createImageBitmap(blob);
+            const maxDim = 150;
+            const scale = Math.min(maxDim / bitmap.width, maxDim / bitmap.height, 1);
+            const w = Math.max(1, Math.round(bitmap.width * scale));
+            const h = Math.max(1, Math.round(bitmap.height * scale));
+
+            const canvas = new OffscreenCanvas(w, h);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bitmap, 0, 0, w, h);
+            bitmap.close();
+
+            const thumbBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.55 });
+            const buffer = await thumbBlob.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            results[url] = 'data:image/jpeg;base64,' + btoa(binary);
+        } catch (e) {
+            results[url] = null;
+        }
+    }
+
+    // Process in parallel with concurrency limit
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) {
+        workers.push((async () => {
+            while (queue.length > 0) {
+                const url = queue.shift();
+                if (url) await processOne(url);
+            }
+        })());
+    }
+    await Promise.all(workers);
+    return results;
+}
+
+/**
+ * Scan tabs for images and return metadata with thumbnails
  */
 async function scanImagesFromTabs(tabIds) {
     const allImages = [];
@@ -2775,11 +2878,31 @@ async function scanImagesFromTabs(tabIds) {
                             }
                         }
 
+                        // Generate thumbnail via canvas (works for same-origin / CORS images)
+                        let thumb = null;
+                        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            try {
+                                const maxDim = 150;
+                                const scale = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight, 1);
+                                const tw = Math.max(1, Math.round(img.naturalWidth * scale));
+                                const th = Math.max(1, Math.round(img.naturalHeight * scale));
+                                const canvas = document.createElement('canvas');
+                                canvas.width = tw;
+                                canvas.height = th;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0, tw, th);
+                                thumb = canvas.toDataURL('image/jpeg', 0.5);
+                            } catch (e) {
+                                // Tainted canvas (cross-origin) - will be filled by background proxy
+                            }
+                        }
+
                         images.push({
                             url: bestSrc,
                             width: img.naturalWidth || 0,
                             height: img.naturalHeight || 0,
-                            alt: img.alt || ''
+                            alt: img.alt || '',
+                            thumb: thumb
                         });
                     });
 
@@ -2803,7 +2926,8 @@ async function scanImagesFromTabs(tabIds) {
                                     width: 0,
                                     height: 0,
                                     alt: 'Background image',
-                                    isBackground: true
+                                    isBackground: true,
+                                    thumb: null
                                 });
                             }
                         }
@@ -2826,7 +2950,6 @@ async function scanImagesFromTabs(tabIds) {
 
                 // Rough filesize estimate based on dimensions
                 if (img.width && img.height) {
-                    // Very rough: 3 bytes per pixel / 10 compression
                     img.filesize = Math.round((img.width * img.height * 3) / 10);
                 } else {
                     img.filesize = 0;
@@ -2841,12 +2964,29 @@ async function scanImagesFromTabs(tabIds) {
         }
     }
 
+    // Deduplicate: group by normalized URL and keep the largest version
+    const normalizedGroups = new Map();
+    for (const img of allImages) {
+        const key = normalizeImageUrl(img.url);
+        const existing = normalizedGroups.get(key);
+        const area = img.width * img.height;
+        const existingArea = existing ? existing.width * existing.height : 0;
+        if (!existing || area > existingArea) {
+            // Preserve thumbnail from whichever version has one
+            if (existing && existing.thumb && !img.thumb) {
+                img.thumb = existing.thumb;
+            }
+            normalizedGroups.set(key, img);
+        }
+    }
+    const dedupedImages = Array.from(normalizedGroups.values());
+
     // Sort by size (largest first)
-    allImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+    dedupedImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
 
-    debugLog(`Image scan complete: ${allImages.length} images found`);
+    debugLog(`Image scan complete: ${allImages.length} found, ${dedupedImages.length} after dedup`);
 
-    return { images: allImages };
+    return { images: dedupedImages };
 }
 
 /**

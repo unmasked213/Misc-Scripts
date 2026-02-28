@@ -780,14 +780,67 @@ const imageTotalCount = document.getElementById('image-total-count');
 const imageSelectAll = document.getElementById('image-select-all');
 const imageDeselectAll = document.getElementById('image-deselect-all');
 const imageFilterBtns = document.querySelectorAll('.modal__filter-btn');
+const imageSortSelect = document.getElementById('image-sort');
+const imageMinSizeSlider = document.getElementById('image-min-size');
+const imageMinSizeValue = document.getElementById('image-min-size-value');
+const imageSelectionSize = document.getElementById('image-selection-size');
+const imagePreview = document.getElementById('image-preview');
+const imagePreviewImg = document.getElementById('image-preview-img');
+const imagePreviewInfo = document.getElementById('image-preview-info');
 
 let detectedImages = [];
 let selectedImageUrls = new Set();
 let currentImageFilter = 'all';
+let currentImageSort = 'largest';
+let minSizeThreshold = 0;
+let keyboardFocusIndex = -1;   // Currently focused card index for arrow keys
+let lastClickedIndex = -1;     // Last clicked card index for Shift+click range select
 let duplicateImageUrls = new Set();
 let imageScanInterval = null;
 let imageScanTabIds = [];  // Tab IDs being scanned (cached for re-scans)
 let knownImageUrls = new Set();  // Accumulated URLs to prevent removal
+let knownNormalizedUrls = new Set();  // Normalized URLs for cross-scan dedup
+
+/**
+ * Normalize an image URL for deduplication.
+ * Strips size params, dimension suffixes, CDN resize paths, cache-busters, etc.
+ * Mirrors the background.js version so popup-side dedup matches.
+ */
+function normalizeImageUrl(url) {
+    try {
+        const u = new URL(url);
+        // Normalize protocol
+        u.protocol = 'https:';
+        // Remove common size/quality query parameters
+        const sizeParams = ['w', 'h', 'width', 'height', 'size', 'resize',
+                            'fit', 'crop', 'quality', 'q', 'dpr', 'auto',
+                            'fl', 'fm', 'format', 'maxwidth', 'maxheight',
+                            's', 'sz', 'thumb', 'thumbnail'];
+        for (const param of sizeParams) {
+            u.searchParams.delete(param);
+        }
+        // Cache-busting params
+        for (const p of ['v', '_', 't', 'cb', 'cache', 'ver', 'rev']) {
+            u.searchParams.delete(p);
+        }
+        // WordPress: -150x150.jpg → .jpg
+        u.pathname = u.pathname.replace(/-\d+x\d+(?=\.\w{3,4}$)/, '');
+        // WordPress: -scaled.jpg → .jpg
+        u.pathname = u.pathname.replace(/-scaled(?=\.\w{3,4}$)/, '');
+        // Shopify / CDN: _150x150.jpg → .jpg
+        u.pathname = u.pathname.replace(/_\d+x\d+(?=\.\w{3,4}$)/, '');
+        // Cloudflare Image Resizing: /cdn-cgi/image/.../
+        u.pathname = u.pathname.replace(/\/cdn-cgi\/image\/[^/]+\//, '/');
+        // CDN resize paths: /resize/WxH/ or /fit-in/WxH/ or /thumbs/
+        u.pathname = u.pathname.replace(/\/(resize|fit-in|thumb(nails?|s)?|crop)\/\d+x\d+\//, '/');
+        // Sort remaining params for consistency
+        u.searchParams.sort();
+        u.hash = '';
+        return u.href;
+    } catch (e) {
+        return url;
+    }
+}
 
 // Show image modal and scan for images
 async function showImageModal() {
@@ -798,6 +851,12 @@ async function showImageModal() {
     selectedImageUrls.clear();
     duplicateImageUrls.clear();
     knownImageUrls.clear();
+    knownNormalizedUrls.clear();
+    keyboardFocusIndex = -1;
+    lastClickedIndex = -1;
+    minSizeThreshold = 0;
+    imageMinSizeSlider.value = 0;
+    imageMinSizeValue.textContent = '0 px';
     updateImageSelectionInfo();
 
     try {
@@ -812,7 +871,10 @@ async function showImageModal() {
         detectedImages = response.images || [];
 
         // Track all known URLs so they persist across re-scans
-        detectedImages.forEach(img => knownImageUrls.add(img.url));
+        detectedImages.forEach(img => {
+            knownImageUrls.add(img.url);
+            knownNormalizedUrls.add(normalizeImageUrl(img.url));
+        });
 
         // Check which images are already downloaded (dupes)
         if (detectedImages.length > 0) {
@@ -868,12 +930,31 @@ async function rescanForNewImages() {
         const freshImages = response.images || [];
         let newCount = 0;
 
-        // Merge new images into the accumulated list (additive only)
+        // Merge new images using normalized URL dedup
         for (const img of freshImages) {
-            if (!knownImageUrls.has(img.url)) {
+            const normUrl = normalizeImageUrl(img.url);
+            if (!knownNormalizedUrls.has(normUrl)) {
+                // Genuinely new image
+                knownNormalizedUrls.add(normUrl);
                 knownImageUrls.add(img.url);
                 detectedImages.push(img);
                 newCount++;
+            } else if (!knownImageUrls.has(img.url)) {
+                // Same normalized URL but different raw URL — keep the larger one
+                const existingIdx = detectedImages.findIndex(existing =>
+                    normalizeImageUrl(existing.url) === normUrl
+                );
+                if (existingIdx >= 0) {
+                    const existingArea = detectedImages[existingIdx].width * detectedImages[existingIdx].height;
+                    const newArea = img.width * img.height;
+                    if (newArea > existingArea) {
+                        selectedImageUrls.delete(detectedImages[existingIdx].url);
+                        knownImageUrls.delete(detectedImages[existingIdx].url);
+                        knownImageUrls.add(img.url);
+                        detectedImages[existingIdx] = img;
+                        newCount++;
+                    }
+                }
             }
         }
 
@@ -893,9 +974,6 @@ async function rescanForNewImages() {
                 newDupes.forEach(url => duplicateImageUrls.add(url));
             }
 
-            // Re-sort by size (largest first) after adding new ones
-            detectedImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-
             renderImageList();
         }
     } catch (error) {
@@ -910,8 +988,35 @@ function hideImageModal() {
     document.body.classList.remove('image-modal-open');
 }
 
+function sortImages(images, sortMode) {
+    const sorted = [...images];
+    switch (sortMode) {
+        case 'smallest':
+            sorted.sort((a, b) => (a.width * a.height) - (b.width * b.height));
+            break;
+        case 'newest':
+            // Preserve the order they were discovered (array insertion order)
+            // detectedImages already has this order, so just reverse the size sort
+            break;
+        case 'largest':
+        default:
+            sorted.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+            break;
+    }
+    return sorted;
+}
+
 function renderImageList() {
-    const filtered = filterImages(detectedImages, currentImageFilter);
+    let filtered = filterImages(detectedImages, currentImageFilter);
+
+    // Apply sort (skip for 'newest' which preserves discovery order)
+    if (currentImageSort !== 'newest') {
+        filtered = sortImages(filtered, currentImageSort);
+    }
+
+    // Reset keyboard focus on re-render
+    keyboardFocusIndex = -1;
+    imagePreview.classList.remove('visible');
 
     if (filtered.length === 0) {
         imageList.innerHTML = `<div class="modal__empty">No ${currentImageFilter === 'all' ? '' : currentImageFilter + ' '}images found</div>`;
@@ -924,13 +1029,14 @@ function renderImageList() {
     imageList.innerHTML = filtered.map((img, idx) => {
         const isSelected = selectedImageUrls.has(img.url);
         const sizeClass = getSizeClass(img.width, img.height);
+        const thumbSrc = img.thumb || img.url;
 
         return `
             <div class="image-card ${isSelected ? 'selected' : ''}"
                  data-url="${escapeHtml(img.url)}"
                  data-index="${idx}">
                 <img class="image-card__img"
-                     src="${escapeHtml(img.url)}"
+                     src="${escapeHtml(thumbSrc)}"
                      alt=""
                      loading="lazy">
                 <div class="image-card__checkbox">
@@ -947,14 +1053,68 @@ function renderImageList() {
         `;
     }).join('');
 
-    // Attach error handlers for broken images (CSP forbids inline onerror)
-    imageList.querySelectorAll('.image-card__img').forEach(img => {
-        img.addEventListener('error', () => {
-            img.style.background = 'var(--ui-elevated-2)';
+    // Attach error handlers for broken images - hide broken icon gracefully
+    imageList.querySelectorAll('.image-card__img').forEach(imgEl => {
+        imgEl.addEventListener('error', () => {
+            imgEl.style.opacity = '0';
+            const card = imgEl.closest('.image-card');
+            if (card) card.style.background = 'var(--ui-elevated-2)';
         });
     });
 
     updateImageSelectionInfo();
+
+    // Request missing thumbnails from background (bypasses CORS)
+    const missingThumbUrls = filtered
+        .filter(img => !img.thumb)
+        .map(img => img.url);
+    if (missingThumbUrls.length > 0) {
+        requestMissingThumbnails(missingThumbUrls);
+    }
+}
+
+/**
+ * Progressively fetch thumbnails from the background service worker
+ * for images where the in-page canvas approach failed (cross-origin).
+ */
+async function requestMissingThumbnails(urls) {
+    const batchSize = 10;
+    for (let i = 0; i < urls.length; i += batchSize) {
+        // Stop if modal was closed
+        if (!imageModal.classList.contains('active')) return;
+
+        const batch = urls.slice(i, i + batchSize);
+        try {
+            const response = await chrome.runtime.sendMessage({
+                action: 'fetch-image-thumbs',
+                urls: batch
+            });
+
+            const thumbnails = response.thumbnails || {};
+
+            // Update cached image objects
+            for (const img of detectedImages) {
+                if (!img.thumb && thumbnails[img.url]) {
+                    img.thumb = thumbnails[img.url];
+                }
+            }
+
+            // Update DOM directly (avoid full re-render)
+            imageList.querySelectorAll('.image-card').forEach(card => {
+                const url = card.dataset.url;
+                if (url && thumbnails[url]) {
+                    const imgEl = card.querySelector('.image-card__img');
+                    if (imgEl) {
+                        imgEl.src = thumbnails[url];
+                        imgEl.style.opacity = '';
+                        card.style.background = '';
+                    }
+                }
+            });
+        } catch (error) {
+            console.warn('Thumbnail batch failed:', error);
+        }
+    }
 }
 
 function filterImages(images, filter) {
@@ -963,6 +1123,13 @@ function filterImages(images, filter) {
     // Hide already-downloaded images when skip dupes is on
     if (skipDuplicatesToggle.checked && duplicateImageUrls.size > 0) {
         result = result.filter(img => !duplicateImageUrls.has(img.url));
+    }
+
+    // Apply min-size threshold
+    if (minSizeThreshold > 0) {
+        result = result.filter(img =>
+            Math.max(img.width, img.height) >= minSizeThreshold
+        );
     }
 
     if (filter === 'all') return result;
@@ -985,19 +1152,50 @@ function updateImageSelectionInfo() {
     const count = selectedImageUrls.size;
     imageSelectionInfo.textContent = count > 0 ? `${count} selected` : 'Select images to download';
     imageModalDownload.disabled = count === 0;
+
+    // Show estimated total filesize
+    if (count > 0) {
+        const totalBytes = detectedImages
+            .filter(img => selectedImageUrls.has(img.url))
+            .reduce((sum, img) => sum + (img.filesize || 0), 0);
+        imageSelectionSize.textContent = totalBytes > 0 ? `· ~${formatFilesize(totalBytes)}` : '';
+    } else {
+        imageSelectionSize.textContent = '';
+    }
 }
 
 // Image modal event listeners
-imageModalClose.addEventListener('click', hideImageModal);
-
-imageModal.addEventListener('click', (e) => {
-    if (e.target === imageModal) hideImageModal();
+imageModalClose.addEventListener('click', () => {
+    if (isDetached) window.close();
+    else hideImageModal();
 });
 
+imageModal.addEventListener('click', (e) => {
+    if (e.target === imageModal && !isDetached) hideImageModal();
+});
+
+// -- Image card click with Shift+click range select -------------------------
 imageList.addEventListener('click', (e) => {
     const card = e.target.closest('.image-card');
-    if (card) {
-        const url = card.dataset.url;
+    if (!card) return;
+
+    const cards = Array.from(imageList.querySelectorAll('.image-card'));
+    const clickedIdx = cards.indexOf(card);
+    const url = card.dataset.url;
+
+    // Shift+click = range select between lastClickedIndex and this one
+    if (e.shiftKey && lastClickedIndex >= 0 && lastClickedIndex !== clickedIdx) {
+        const start = Math.min(lastClickedIndex, clickedIdx);
+        const end = Math.max(lastClickedIndex, clickedIdx);
+        for (let i = start; i <= end; i++) {
+            const u = cards[i]?.dataset.url;
+            if (u) {
+                selectedImageUrls.add(u);
+                cards[i].classList.add('selected');
+            }
+        }
+    } else {
+        // Normal toggle
         if (selectedImageUrls.has(url)) {
             selectedImageUrls.delete(url);
             card.classList.remove('selected');
@@ -1005,8 +1203,11 @@ imageList.addEventListener('click', (e) => {
             selectedImageUrls.add(url);
             card.classList.add('selected');
         }
-        updateImageSelectionInfo();
     }
+
+    lastClickedIndex = clickedIdx;
+    keyboardFocusIndex = clickedIdx;
+    updateImageSelectionInfo();
 });
 
 imageSelectAll.addEventListener('click', () => {
@@ -1027,6 +1228,127 @@ imageFilterBtns.forEach(btn => {
         currentImageFilter = btn.dataset.filter;
         renderImageList();
     });
+});
+
+imageSortSelect.addEventListener('change', () => {
+    currentImageSort = imageSortSelect.value;
+    renderImageList();
+});
+
+// -- Min-size slider --------------------------------------------------------
+imageMinSizeSlider.addEventListener('input', () => {
+    const val = parseInt(imageMinSizeSlider.value, 10);
+    minSizeThreshold = val;
+    imageMinSizeValue.textContent = val > 0 ? `${val} px` : '0 px';
+    renderImageList();
+});
+
+// -- Hover preview ----------------------------------------------------------
+imageList.addEventListener('mouseenter', (e) => {
+    const card = e.target.closest?.('.image-card');
+    if (!card) return;
+
+    const url = card.dataset.url;
+    const img = detectedImages.find(i => i.url === url);
+    if (!img) return;
+
+    // Use the full-res URL for preview (not the thumbnail)
+    imagePreviewImg.src = img.thumb || img.url;
+    imagePreviewInfo.textContent = img.width && img.height
+        ? `${img.width}×${img.height}  ·  ${img.format?.toUpperCase() || 'IMG'}`
+        : '';
+
+    // Position to the right of the card (or left if near right edge)
+    const rect = card.getBoundingClientRect();
+    const spaceRight = window.innerWidth - rect.right;
+    const spaceLeft = rect.left;
+
+    if (spaceRight >= 340) {
+        imagePreview.style.left = (rect.right + 8) + 'px';
+    } else if (spaceLeft >= 340) {
+        imagePreview.style.left = (rect.left - 328) + 'px';
+    } else {
+        // Fallback: position above the card centered
+        imagePreview.style.left = Math.max(4, rect.left + rect.width / 2 - 160) + 'px';
+    }
+    imagePreview.style.top = Math.max(4, Math.min(rect.top, window.innerHeight - 340)) + 'px';
+
+    imagePreview.classList.add('visible');
+}, true);
+
+imageList.addEventListener('mouseleave', (e) => {
+    const card = e.target.closest?.('.image-card');
+    if (card) {
+        imagePreview.classList.remove('visible');
+    }
+}, true);
+
+// Hide preview on scroll too
+imageList.addEventListener('scroll', () => {
+    imagePreview.classList.remove('visible');
+});
+
+// -- Keyboard navigation: Ctrl+A, arrows, Space/Enter ----------------------
+document.addEventListener('keydown', (e) => {
+    // Only handle when image modal is open
+    if (!imageModal.classList.contains('active')) return;
+
+    const cards = Array.from(imageList.querySelectorAll('.image-card'));
+    if (cards.length === 0) return;
+
+    // Ctrl/Cmd+A = select all visible
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        const filtered = filterImages(detectedImages, currentImageFilter);
+        if (currentImageSort !== 'newest') {
+            // Selection operates on all filtered, sort doesn't matter
+        }
+        filtered.forEach(img => selectedImageUrls.add(img.url));
+        renderImageList();
+        return;
+    }
+
+    // Arrow key navigation
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+
+        // Calculate grid columns from first card width
+        const gridWidth = imageList.clientWidth;
+        const cardWidth = cards[0]?.offsetWidth || 160;
+        const cols = Math.max(1, Math.round(gridWidth / cardWidth));
+
+        let newIdx = keyboardFocusIndex;
+        if (e.key === 'ArrowRight') newIdx = Math.min(cards.length - 1, newIdx + 1);
+        else if (e.key === 'ArrowLeft') newIdx = Math.max(0, newIdx - 1);
+        else if (e.key === 'ArrowDown') newIdx = Math.min(cards.length - 1, newIdx + cols);
+        else if (e.key === 'ArrowUp') newIdx = Math.max(0, newIdx - cols);
+
+        if (newIdx < 0) newIdx = 0;
+
+        // Move focus ring
+        cards.forEach(c => c.classList.remove('keyboard-focus'));
+        cards[newIdx]?.classList.add('keyboard-focus');
+        cards[newIdx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        keyboardFocusIndex = newIdx;
+        return;
+    }
+
+    // Space or Enter = toggle selection on focused card
+    if ((e.key === ' ' || e.key === 'Enter') && keyboardFocusIndex >= 0) {
+        e.preventDefault();
+        const card = cards[keyboardFocusIndex];
+        if (!card) return;
+        const url = card.dataset.url;
+        if (selectedImageUrls.has(url)) {
+            selectedImageUrls.delete(url);
+            card.classList.remove('selected');
+        } else {
+            selectedImageUrls.add(url);
+            card.classList.add('selected');
+        }
+        updateImageSelectionInfo();
+        return;
+    }
 });
 
 imageModalDownload.addEventListener('click', async () => {
@@ -1071,12 +1393,18 @@ imageModalDownload.addEventListener('click', async () => {
         showStatus('Error: ' + error.message, 'error');
         showProgress(false);
     }
+
+    // In detached mode, re-open the grid with a fresh scan
+    if (isDetached) {
+        setTimeout(() => showImageModal(), 400);
+    }
 });
 
 // Handle Escape for image modal too
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && imageModal.classList.contains('active')) {
-        hideImageModal();
+        if (isDetached) window.close();
+        else hideImageModal();
     }
 });
 
@@ -1224,6 +1552,16 @@ for (const [inputId, actionId] of Object.entries(shortcutInputs)) {
 
 // Load shortcuts on popup open
 loadShortcuts();
+
+// =============================================================================
+// DETACHED MODE - Auto-open image grid
+// =============================================================================
+
+if (isDetached) {
+    // In detached mode, the image grid IS the main interface.
+    // Auto-open it after a short delay to let init complete.
+    setTimeout(() => showImageModal(), 150);
+}
 
 // =============================================================================
 // DETACHED WINDOW - Button handlers (state & getTargetTabs defined at top)
