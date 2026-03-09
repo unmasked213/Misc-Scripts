@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "duplicate-finder",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["server.py"],
+      "cwd": "python/Duplicate image detection V2",
+      "port": 5000
+    },
+    {
+      "name": "ha-frontend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [".claude/ha_preview_proxy.py"],
+      "port": 8124
+    }
+  ]
+}

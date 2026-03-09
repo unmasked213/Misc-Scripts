@@ -1655,6 +1655,66 @@ const PerceptualHash = {
         }
     },
 
+    /**
+     * Generate perceptual hash from an already-decoded ImageBitmap.
+     * Used by generateThumbnailsBatch() to piggyback hash computation
+     * on the thumbnail pipeline without re-fetching.
+     * Does NOT close the bitmap — caller still needs it for the thumbnail.
+     */
+    async generateFromBitmap(imageBitmap) {
+        if (!Config.deduplication.perceptualHash.enabled) {
+            return null;
+        }
+
+        try {
+            const hashSize = 8;
+            const sampleSize = 32;
+
+            const canvas = new OffscreenCanvas(sampleSize, sampleSize);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imageBitmap, 0, 0, sampleSize, sampleSize);
+
+            const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+            const pixels = imageData.data;
+            const grayscale = [];
+
+            for (let i = 0; i < pixels.length; i += 4) {
+                const gray = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+                grayscale.push(gray);
+            }
+
+            const blockSize = sampleSize / hashSize;
+            const hashPixels = [];
+
+            for (let y = 0; y < hashSize; y++) {
+                for (let x = 0; x < hashSize; x++) {
+                    let sum = 0;
+                    let count = 0;
+                    for (let by = 0; by < blockSize; by++) {
+                        for (let bx = 0; bx < blockSize; bx++) {
+                            const idx = (y * blockSize + by) * sampleSize + (x * blockSize + bx);
+                            sum += grayscale[idx];
+                            count++;
+                        }
+                    }
+                    hashPixels.push(sum / count);
+                }
+            }
+
+            const average = hashPixels.reduce((a, b) => a + b, 0) / hashPixels.length;
+
+            let hash = '';
+            for (const pixel of hashPixels) {
+                hash += pixel > average ? '1' : '0';
+            }
+
+            return BigInt('0b' + hash).toString(16).padStart(16, '0');
+        } catch (error) {
+            debugLog('Perceptual hash from bitmap error:', error);
+            return null;
+        }
+    },
+
     hammingDistance(hash1, hash2) {
         if (!hash1 || !hash2 || hash1.length !== hash2.length) {
             return Infinity;
@@ -1864,6 +1924,7 @@ const DownloadManager = {
 
                         let bestSrc = imgElement.src;
                         let bestWidth = imgElement.naturalWidth || 0;
+                        let srcUpgraded = false;
 
                         if (imgElement.srcset) {
                             const srcsetItems = imgElement.srcset.split(',');
@@ -1878,6 +1939,7 @@ const DownloadManager = {
                                         if (width > bestWidth) {
                                             bestWidth = width;
                                             bestSrc = itemUrl;
+                                            srcUpgraded = true;
                                         }
                                     } else if (descriptor.endsWith('x')) {
                                         const density = parseFloat(descriptor);
@@ -1885,22 +1947,35 @@ const DownloadManager = {
                                         if (effectiveWidth > bestWidth) {
                                             bestWidth = effectiveWidth;
                                             bestSrc = itemUrl;
+                                            srcUpgraded = true;
                                         }
                                     }
                                 }
                             }
                         }
 
+                        // Explicit high-quality attrs always win
                         const highQualityAttrs = [
-                            'data-src', 'data-original', 'data-orig-file', 'data-large-file',
+                            'data-orig-file', 'data-large-file',
                             'data-full-src', 'data-zoom-src', 'data-large', 'data-1000px'
                         ];
-
                         for (const attr of highQualityAttrs) {
                             const val = imgElement.getAttribute(attr);
                             if (val?.trim() && (val.startsWith('http') || val.startsWith('/'))) {
                                 bestSrc = val;
+                                srcUpgraded = true;
                                 break;
+                            }
+                        }
+                        // Lazy-load attrs only used when srcset didn't already find better
+                        if (!srcUpgraded) {
+                            const lazyAttrs = ['data-src', 'data-original'];
+                            for (const attr of lazyAttrs) {
+                                const val = imgElement.getAttribute(attr);
+                                if (val?.trim() && (val.startsWith('http') || val.startsWith('/'))) {
+                                    bestSrc = val;
+                                    break;
+                                }
                             }
                         }
 
@@ -2526,6 +2601,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     message.options || {}
                 );
                 sendResponse(result);
+            } else if (message.action === 'open-image-modal-requested') {
+                // Open image picker as detached window (from custom keyboard shortcut)
+                try {
+                    const sourceTab = sender.tab;
+                    const sourceWindowId = sourceTab?.windowId;
+                    let tabIds = [];
+                    if (sourceWindowId) {
+                        const tabs = await chrome.tabs.query({ highlighted: true, windowId: sourceWindowId });
+                        tabIds = tabs.map(t => t.id);
+                    }
+                    const sourceWindow = sourceWindowId
+                        ? await chrome.windows.get(sourceWindowId)
+                        : await chrome.windows.getCurrent();
+                    const width = 460;
+                    const height = 650;
+                    const left = Math.max(0, (sourceWindow.left + sourceWindow.width) - width - 20);
+                    const top = sourceWindow.top + 60;
+                    const params = new URLSearchParams({
+                        detached: '1',
+                        sourceWindowId: String(sourceWindowId || ''),
+                        tabIds: tabIds.join(',')
+                    });
+                    chrome.windows.create({
+                        url: chrome.runtime.getURL('popup.html?' + params.toString()),
+                        type: 'popup',
+                        width, height, left, top,
+                        focused: true
+                    });
+                    sendResponse({ ok: true });
+                } catch (e) {
+                    debugLog('Error opening image picker from shortcut:', e);
+                    sendResponse({ ok: false, error: e.message });
+                }
             } else if (message.action === 'detach-to-window') {
                 // Open popup.html in a persistent detached window
                 // Capture the source browser window and its highlighted tabs
@@ -2775,12 +2883,16 @@ async function generateThumbnailsBatch(urls, concurrency = 6) {
             const timeout = setTimeout(() => controller.abort(), 8000);
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(timeout);
-            if (!response.ok) { results[url] = null; return; }
+            if (!response.ok) { results[url] = { thumb: null, pHash: null }; return; }
 
             const blob = await response.blob();
-            if (!blob.type || !blob.type.startsWith('image')) { results[url] = null; return; }
+            if (!blob.type || !blob.type.startsWith('image')) { results[url] = { thumb: null, pHash: null }; return; }
 
             const bitmap = await createImageBitmap(blob);
+
+            // Compute perceptual hash from the decoded bitmap (before closing it)
+            const pHash = await PerceptualHash.generateFromBitmap(bitmap);
+
             const maxDim = 150;
             const scale = Math.min(maxDim / bitmap.width, maxDim / bitmap.height, 1);
             const w = Math.max(1, Math.round(bitmap.width * scale));
@@ -2798,9 +2910,12 @@ async function generateThumbnailsBatch(urls, concurrency = 6) {
             for (let i = 0; i < bytes.length; i++) {
                 binary += String.fromCharCode(bytes[i]);
             }
-            results[url] = 'data:image/jpeg;base64,' + btoa(binary);
+            results[url] = {
+                thumb: 'data:image/jpeg;base64,' + btoa(binary),
+                pHash: pHash
+            };
         } catch (e) {
-            results[url] = null;
+            results[url] = { thumb: null, pHash: null };
         }
     }
 
@@ -2842,6 +2957,9 @@ async function scanImagesFromTabs(tabIds) {
 
                         // Get best quality version
                         let bestSrc = src;
+                        let srcUpgraded = false;
+                        let bestKnownWidth = img.naturalWidth || 0;
+                        let bestKnownHeight = img.naturalHeight || 0;
 
                         // Check srcset for highest resolution
                         if (img.srcset) {
@@ -2854,18 +2972,37 @@ async function scanImagesFromTabs(tabIds) {
                                     if (w > maxWidth) {
                                         maxWidth = w;
                                         bestSrc = parts[0];
+                                        srcUpgraded = true;
+                                        // Estimate dimensions from srcset width descriptor
+                                        const natW = img.naturalWidth || 1;
+                                        const natH = img.naturalHeight || 1;
+                                        bestKnownWidth = w;
+                                        bestKnownHeight = Math.round(w * (natH / natW));
                                     }
                                 }
                             }
                         }
 
                         // Check data attributes for full-size URLs
-                        const dataAttrs = ['data-src', 'data-original', 'data-large-file', 'data-full-src', 'data-zoom-src'];
-                        for (const attr of dataAttrs) {
+                        // Explicit high-quality attrs always win (they signal a larger version)
+                        const highQualityAttrs = ['data-large-file', 'data-full-src', 'data-zoom-src'];
+                        for (const attr of highQualityAttrs) {
                             const val = img.getAttribute(attr);
                             if (val && (val.startsWith('http') || val.startsWith('/'))) {
                                 bestSrc = val;
+                                srcUpgraded = true;
                                 break;
+                            }
+                        }
+                        // Lazy-load attrs only used when srcset didn't already find something better
+                        if (!srcUpgraded) {
+                            const lazyAttrs = ['data-src', 'data-original'];
+                            for (const attr of lazyAttrs) {
+                                const val = img.getAttribute(attr);
+                                if (val && (val.startsWith('http') || val.startsWith('/'))) {
+                                    bestSrc = val;
+                                    break;
+                                }
                             }
                         }
 
@@ -2899,8 +3036,8 @@ async function scanImagesFromTabs(tabIds) {
 
                         images.push({
                             url: bestSrc,
-                            width: img.naturalWidth || 0,
-                            height: img.naturalHeight || 0,
+                            width: bestKnownWidth,
+                            height: bestKnownHeight,
                             alt: img.alt || '',
                             thumb: thumb
                         });

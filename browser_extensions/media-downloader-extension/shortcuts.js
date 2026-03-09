@@ -70,10 +70,79 @@
         return modifiersMatch && e.code === shortcut.key;
     }
 
+    // Resolve the best (highest quality) URL for an image element
+    function getBestImageUrl(img) {
+        let bestSrc = img.currentSrc || img.src;
+        let srcUpgraded = false;
+
+        // Check srcset for highest resolution
+        if (img.srcset) {
+            const items = img.srcset.split(',');
+            let maxWidth = img.naturalWidth || 0;
+            for (const item of items) {
+                const parts = item.trim().split(/\s+/);
+                if (parts.length >= 2) {
+                    const descriptor = parts[parts.length - 1];
+                    if (descriptor.endsWith('w')) {
+                        const w = parseInt(descriptor);
+                        if (w > maxWidth) {
+                            maxWidth = w;
+                            bestSrc = parts[0];
+                            srcUpgraded = true;
+                        }
+                    } else if (descriptor.endsWith('x')) {
+                        const density = parseFloat(descriptor);
+                        const effectiveWidth = (img.naturalWidth || 100) * density;
+                        if (effectiveWidth > maxWidth) {
+                            maxWidth = effectiveWidth;
+                            bestSrc = parts[0];
+                            srcUpgraded = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Explicit high-quality data attrs always win
+        const highQualityAttrs = ['data-large-file', 'data-full-src', 'data-zoom-src',
+                                   'data-orig-file', 'data-large', 'data-hires', 'data-highres'];
+        for (const attr of highQualityAttrs) {
+            const val = img.getAttribute(attr);
+            if (val?.trim() && (val.startsWith('http') || val.startsWith('/'))) {
+                bestSrc = val;
+                srcUpgraded = true;
+                break;
+            }
+        }
+        // Lazy-load attrs only when srcset didn't find something better
+        if (!srcUpgraded) {
+            const lazyAttrs = ['data-src', 'data-original'];
+            for (const attr of lazyAttrs) {
+                const val = img.getAttribute(attr);
+                if (val?.trim() && (val.startsWith('http') || val.startsWith('/'))) {
+                    bestSrc = val;
+                    break;
+                }
+            }
+        }
+
+        // Check parent <a> link to full-size image
+        const parentLink = img.closest('a');
+        if (parentLink?.href && /\.(jpe?g|png|gif|webp|svg|avif)(\?.*)?$/i.test(parentLink.href)) {
+            bestSrc = parentLink.href;
+        }
+
+        // Convert to absolute URL
+        if (bestSrc && !bestSrc.startsWith('http')) {
+            try { bestSrc = new URL(bestSrc, window.location.href).href; }
+            catch (e) { /* keep as-is */ }
+        }
+
+        return bestSrc;
+    }
+
     // Get the image currently under the cursor
     function getHoveredImage() {
-        // Get element under cursor using document.elementFromPoint isn't reliable
-        // Instead, we track the last hovered image
         const hovered = document.querySelector('img:hover');
         if (hovered && hovered.src && hovered.src.startsWith('http')) {
             return hovered;
@@ -101,10 +170,11 @@
 
             const hoveredImage = getHoveredImage();
             if (hoveredImage) {
-                console.log('[MediaDownloader:shortcuts] Download hovered image:', hoveredImage.src.substring(0, 60));
+                const bestUrl = getBestImageUrl(hoveredImage);
+                console.log('[MediaDownloader:shortcuts] Download hovered image:', bestUrl.substring(0, 60));
                 safeSendMessage({
                     action: 'download-single-image',
-                    url: hoveredImage.src,
+                    url: bestUrl,
                     options: { useStoredPrefix: true }
                 });
             } else {
@@ -113,20 +183,12 @@
             return;
         }
 
-        // Check open-image-modal shortcut
-        // Note: This can't directly open the popup, but could trigger a notification
-        // or inject a modal into the page. For now, we'll just log it.
+        // Check open-image-modal shortcut — opens the image picker as a detached window
         if (matchesShortcut(e, customShortcuts['open-image-modal'])) {
             e.preventDefault();
             e.stopPropagation();
 
-            // We can't open the extension popup programmatically in MV3
-            // But we can send a message that could trigger a desktop notification
-            // or inject a modal. For now, just log and user can use Alt+Shift+S.
-            console.log('[MediaDownloader:shortcuts] Open image picker requested - use extension popup');
-
-            // Could potentially inject a modal here in the future
-            // For now, try to open the popup via action API (won't work from content script)
+            console.log('[MediaDownloader:shortcuts] Opening image picker window');
             safeSendMessage({
                 action: 'open-image-modal-requested'
             });

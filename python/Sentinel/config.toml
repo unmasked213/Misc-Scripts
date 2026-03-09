@@ -1,0 +1,275 @@
+# ══════════════════════════════════════════════════════════════
+#  Sentinel — Configuration
+#  All routing logic, thresholds, and behaviour live here.
+#  Edit this file. Don't edit Python.
+# ══════════════════════════════════════════════════════════════
+
+# ── Watch Folders ─────────────────────────────────────────────
+# Each entry can override global settings.
+
+[[watch_folders]]
+path = "C:/Users/YOU/Downloads"
+recursive = false
+
+# ── Trash Retention ──────────────────────────────────────────
+# Auto-purge trashed files after this many days. 0 = never purge.
+trash_retention_days = 30
+
+# ── Destinations ──────────────────────────────────────────────
+# Named destination folders used in rules.
+# Sentinel creates these if they don't exist.
+
+[destinations]
+music = "D:/Media/Music"
+video_horizontal = "D:/Media/Video/Horizontal"
+video_vertical = "D:/Media/Video/Vertical"
+images = "D:/Media/Images"
+documents = "D:/Documents/Sorted"
+archives = "D:/Archives"
+quarantine = "C:/Users/YOU/Downloads/.sentinel/quarantine"
+trash = "C:/Users/YOU/Downloads/.sentinel/trash"
+
+# ── Classification ────────────────────────────────────────────
+# Extension-to-type mapping. Case-insensitive.
+# Files not matching any list fall back to ffprobe if enabled,
+# otherwise classified as 'unknown'.
+
+[classification]
+probe_unknown = true
+
+audio = [
+    "mp3", "flac", "wav", "m4a", "ogg", "opus",
+    "aac", "wma", "aiff", "alac",
+]
+video = [
+    "mp4", "mkv", "webm", "avi", "mov", "ts", "flv",
+    "wmv", "m4v", "mpg", "mpeg", "3gp", "vob", "ogv",
+]
+image = [
+    "jpg", "jpeg", "png", "gif", "webp", "bmp",
+    "tiff", "tif", "svg", "ico", "heic", "heif", "avif", "jxl",
+]
+document = [
+    "pdf", "doc", "docx", "txt", "rtf", "odt",
+    "xlsx", "xls", "csv", "pptx", "ppt", "epub", "md",
+]
+archive = [
+    "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso",
+]
+
+# ── Ignore Patterns ───────────────────────────────────────────
+# Files matching these patterns are completely ignored.
+# Glob syntax. Applied to filename only, not full path.
+
+ignore_patterns = [
+    "*.tmp", "*.crdownload", "*.part", "*.partial",
+    "*.downloading", "desktop.ini", "thumbs.db", ".DS_Store",
+]
+
+# ── Orientation Detection ─────────────────────────────────────
+# How video orientation (vertical vs horizontal) is determined.
+
+[orientation]
+# Use cropdetect to find true content area when aspect ratio
+# is within this tolerance of 16:9 (catches padded verticals).
+ambiguity_tolerance = 0.15
+cropdetect_threshold = 24
+cropdetect_samples = 5
+min_duration_for_cropdetect = 5
+
+# ── Duplicate Detection ───────────────────────────────────────
+
+[dedup]
+enabled = true
+
+[dedup.exact]
+enabled = true
+partial_hash_bytes = 65536
+algorithm = "blake2b"       # blake2b is faster than sha256
+
+[dedup.video]
+enabled = true
+frame_interval_seconds = 5
+hash_size = 16              # dHash grid size (NxN)
+hamming_threshold = 10
+match_threshold_percent = 85
+
+[dedup.audio]
+enabled = true
+similarity_threshold = 0.8  # Chromaprint similarity (0.0-1.0)
+
+[dedup.image]
+enabled = true
+# pHash with 8 canonical transforms (rotation/flip invariant).
+# Uses ORB keypoints + RANSAC geometric verification for
+# crops, resizes, rotations, and edits.
+phash_duplicate = 0.90      # pHash threshold for "duplicate"
+phash_variant = 0.75        # pHash threshold for "variant"
+phash_skip_geometric = 0.97 # Skip geometry check if pHash >= this
+low_texture_keypoints_min = 120
+low_texture_phash_duplicate = 0.94
+low_texture_phash_variant = 0.82
+orb_features = 800
+orb_scale_factor = 1.2
+feature_max_dimension = 1024
+aspect_ratio_tolerance = 0.15
+lsh_hamming_radius = 16
+
+[dedup.image.geometry]
+ransac_models = ["similarity", "affine", "homography"]
+scale_limits = [0.25, 4.0]
+
+[dedup.image.geometry.duplicate]
+reprojection_px = 2.5
+min_inliers = 40
+coverage = 0.50
+
+[dedup.image.geometry.variant]
+reprojection_px = 4.0
+min_inliers = 25
+coverage = 0.35
+
+[dedup.subset]
+enabled = true
+min_duration_ratio = 0.1
+match_threshold_percent = 80
+
+[dedup.resolution]
+prefer = "higher_quality"   # higher_quality | newer | older | larger | smaller
+auto_trash = true
+confidence_threshold = 0.85 # Below this → quarantine instead
+
+# ── Source Detection ──────────────────────────────────────────
+
+[source]
+ads_enabled = true
+
+[source.title_resolution]
+enabled = true
+domains = [
+    "youtube.com", "youtu.be", "vimeo.com",
+    "twitter.com", "x.com", "reddit.com", "tiktok.com",
+]
+
+# ── Naming ────────────────────────────────────────────────────
+
+[naming]
+sanitize = true
+max_length = 200
+# increment | timestamp | skip
+conflict_strategy = "increment"
+
+# ── Processing ────────────────────────────────────────────────
+
+[processing]
+write_stable_seconds = 2
+write_check_interval = 0.5
+max_retries = 5
+retry_delay_seconds = 3
+workers = 2
+
+# ── Logging ───────────────────────────────────────────────────
+
+[logging]
+level = "INFO"
+file = ".sentinel/sentinel.log"
+max_size_mb = 10
+backup_count = 5
+console = true
+
+# ── Startup ───────────────────────────────────────────────────
+
+[startup]
+catch_up_scan = true
+ensure_destinations = true
+
+# ── External Tools ────────────────────────────────────────────
+
+[tools]
+ffprobe = "ffprobe"
+ffmpeg = "ffmpeg"
+fpcalc = "fpcalc"
+yt_dlp = "yt-dlp"
+
+# ── Rules ─────────────────────────────────────────────────────
+# Ordered list. First match wins unless 'continue = true'.
+#
+# Available conditions:
+#   type, orientation, extension, source, name_pattern,
+#   size_min, size_max, duration_min, duration_max
+#
+# Available actions:
+#   move_to, rename, copy_to, trash, quarantine, tag
+#
+# Template variables for rename:
+#   {filename} {ext} {type} {date} {datetime} {resolution}
+#   {source_title} {youtube_title} {artist} {album} {track}
+#   {width} {height}
+
+[[rules]]
+name = "Rename YouTube downloads"
+continue = true
+[rules.conditions]
+source = "youtube.com"
+[rules.actions]
+rename = "{source_title}{ext}"
+
+[[rules]]
+name = "Rename youtu.be downloads"
+continue = true
+[rules.conditions]
+source = "youtu.be"
+[rules.actions]
+rename = "{source_title}{ext}"
+
+[[rules]]
+name = "Route audio"
+[rules.conditions]
+type = "audio"
+[rules.actions]
+move_to = "music"
+
+[[rules]]
+name = "Route vertical video"
+[rules.conditions]
+type = "video"
+orientation = "vertical"
+[rules.actions]
+move_to = "video_vertical"
+
+[[rules]]
+name = "Route horizontal video"
+[rules.conditions]
+type = "video"
+orientation = "horizontal"
+[rules.actions]
+move_to = "video_horizontal"
+
+[[rules]]
+name = "Route square video"
+[rules.conditions]
+type = "video"
+orientation = "square"
+[rules.actions]
+move_to = "video_horizontal"
+
+[[rules]]
+name = "Route images"
+[rules.conditions]
+type = "image"
+[rules.actions]
+move_to = "images"
+
+[[rules]]
+name = "Route documents"
+[rules.conditions]
+type = "document"
+[rules.actions]
+move_to = "documents"
+
+[[rules]]
+name = "Route archives"
+[rules.conditions]
+type = "archive"
+[rules.actions]
+move_to = "archives"

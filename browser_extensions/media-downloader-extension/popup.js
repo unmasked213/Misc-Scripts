@@ -842,6 +842,100 @@ function normalizeImageUrl(url) {
     }
 }
 
+/**
+ * Hamming distance between two 16-char hex hash strings (64-bit).
+ * Returns 0-64 (0 = identical), or Infinity on invalid input.
+ */
+function hammingDistance(hash1, hash2) {
+    if (!hash1 || !hash2 || hash1.length !== hash2.length) return Infinity;
+    try {
+        const bin1 = BigInt('0x' + hash1);
+        const bin2 = BigInt('0x' + hash2);
+        const xor = bin1 ^ bin2;
+        let distance = 0;
+        let val = xor;
+        while (val > 0n) {
+            distance += Number(val & 1n);
+            val >>= 1n;
+        }
+        return distance;
+    } catch {
+        return Infinity;
+    }
+}
+
+/**
+ * Perceptual hash dedup: group images by hash similarity (hamming ≤ 5),
+ * keep only the highest-resolution version in each group.
+ * Others get pHashHidden = true so filterImages() excludes them.
+ * Returns the number of images newly hidden.
+ */
+function applyPerceptualDedup() {
+    const HAMMING_THRESHOLD = 5;
+    let hiddenCount = 0;
+
+    const hashed = detectedImages.filter(img => img.pHash);
+    if (hashed.length < 2) return 0;
+
+    // Union-Find for grouping similar hashes
+    const parent = new Map();
+    function find(url) {
+        if (!parent.has(url)) parent.set(url, url);
+        if (parent.get(url) !== url) {
+            parent.set(url, find(parent.get(url)));
+        }
+        return parent.get(url);
+    }
+    function union(a, b) {
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent.set(ra, rb);
+    }
+
+    // Compare all pairs — O(n²) but n is small (50-200 images, ~20ms)
+    for (let i = 0; i < hashed.length; i++) {
+        for (let j = i + 1; j < hashed.length; j++) {
+            if (hammingDistance(hashed[i].pHash, hashed[j].pHash) <= HAMMING_THRESHOLD) {
+                union(hashed[i].url, hashed[j].url);
+            }
+        }
+    }
+
+    // Build groups
+    const groups = new Map();
+    for (const img of hashed) {
+        const root = find(img.url);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(img);
+    }
+
+    // For each group: keep largest by pixel area, hide the rest
+    for (const [, group] of groups) {
+        if (group.length <= 1) {
+            group[0].pHashHidden = false;
+            continue;
+        }
+
+        // Sort by area descending; tiebreak by discovery order
+        group.sort((a, b) => {
+            const aArea = (a.width || 0) * (a.height || 0);
+            const bArea = (b.width || 0) * (b.height || 0);
+            if (bArea !== aArea) return bArea - aArea;
+            return detectedImages.indexOf(a) - detectedImages.indexOf(b);
+        });
+
+        group[0].pHashHidden = false;
+        for (let k = 1; k < group.length; k++) {
+            if (!group[k].pHashHidden) {
+                group[k].pHashHidden = true;
+                hiddenCount++;
+                selectedImageUrls.delete(group[k].url);
+            }
+        }
+    }
+
+    return hiddenCount;
+}
+
 // Show image modal and scan for images
 async function showImageModal() {
     document.body.classList.add('image-modal-open');
@@ -1024,7 +1118,11 @@ function renderImageList() {
         return;
     }
 
-    imageTotalCount.textContent = `${filtered.length} image${filtered.length !== 1 ? 's' : ''}`;
+    const hiddenByHash = detectedImages.filter(img => img.pHashHidden).length;
+    const countText = `${filtered.length} image${filtered.length !== 1 ? 's' : ''}`;
+    imageTotalCount.textContent = hiddenByHash > 0
+        ? `${countText} (${hiddenByHash} similar hidden)`
+        : countText;
 
     imageList.innerHTML = filtered.map((img, idx) => {
         const isSelected = selectedImageUrls.has(img.url);
@@ -1064,12 +1162,14 @@ function renderImageList() {
 
     updateImageSelectionInfo();
 
-    // Request missing thumbnails from background (bypasses CORS)
-    const missingThumbUrls = filtered
-        .filter(img => !img.thumb)
+    // Request thumbnails + perceptual hashes from background (bypasses CORS)
+    // Send images missing a thumb OR missing a pHash (same-origin canvas
+    // thumbnails won't have a hash yet, so they still need processing).
+    const needProcessing = filtered
+        .filter(img => !img.thumb || !img.pHash)
         .map(img => img.url);
-    if (missingThumbUrls.length > 0) {
-        requestMissingThumbnails(missingThumbUrls);
+    if (needProcessing.length > 0) {
+        requestMissingThumbnails(needProcessing);
     }
 }
 
@@ -1092,25 +1192,42 @@ async function requestMissingThumbnails(urls) {
 
             const thumbnails = response.thumbnails || {};
 
-            // Update cached image objects
+            // Update cached image objects with thumb + pHash
             for (const img of detectedImages) {
-                if (!img.thumb && thumbnails[img.url]) {
-                    img.thumb = thumbnails[img.url];
+                const data = thumbnails[img.url];
+                if (!data) continue;
+                // Support new { thumb, pHash } shape and legacy string shape
+                if (typeof data === 'object') {
+                    if (!img.thumb && data.thumb) img.thumb = data.thumb;
+                    if (!img.pHash && data.pHash) img.pHash = data.pHash;
+                } else if (!img.thumb) {
+                    img.thumb = data;
                 }
             }
+
+            // Run perceptual dedup after each batch arrives
+            const hidden = applyPerceptualDedup();
 
             // Update DOM directly (avoid full re-render)
             imageList.querySelectorAll('.image-card').forEach(card => {
                 const url = card.dataset.url;
-                if (url && thumbnails[url]) {
+                const data = thumbnails[url];
+                if (!url || !data) return;
+                const thumbUrl = typeof data === 'object' ? data.thumb : data;
+                if (thumbUrl) {
                     const imgEl = card.querySelector('.image-card__img');
                     if (imgEl) {
-                        imgEl.src = thumbnails[url];
+                        imgEl.src = thumbUrl;
                         imgEl.style.opacity = '';
                         card.style.background = '';
                     }
                 }
             });
+
+            // If dedup hid items, re-render to remove them from the grid
+            if (hidden > 0) {
+                renderImageList();
+            }
         } catch (error) {
             console.warn('Thumbnail batch failed:', error);
         }
@@ -1119,6 +1236,9 @@ async function requestMissingThumbnails(urls) {
 
 function filterImages(images, filter) {
     let result = images;
+
+    // Hide perceptual-hash duplicates (lower-res copies of the same image)
+    result = result.filter(img => !img.pHashHidden);
 
     // Hide already-downloaded images when skip dupes is on
     if (skipDuplicatesToggle.checked && duplicateImageUrls.size > 0) {
@@ -1458,6 +1578,28 @@ function formatShortcut(shortcut) {
     return parts.join('+');
 }
 
+// Browser-reserved shortcuts that extensions can't override
+const RESERVED_SHORTCUTS = new Set([
+    'ctrl+shift+KeyD',   // Bookmark all tabs
+    'ctrl+shift+KeyB',   // Toggle bookmarks bar
+    'ctrl+shift+KeyO',   // Bookmarks manager
+    'ctrl+shift+KeyJ',   // Downloads
+    'ctrl+shift+KeyI',   // DevTools
+    'ctrl+shift+KeyN',   // Incognito window
+    'ctrl+shift+KeyT',   // Reopen closed tab
+    'ctrl+shift+Delete', // Clear browsing data
+    'ctrl+KeyW',         // Close tab
+    'ctrl+KeyT',         // New tab
+    'ctrl+KeyN',         // New window
+    'ctrl+KeyL',         // Focus address bar
+]);
+
+function isReservedShortcut(shortcut) {
+    if (!shortcut || !shortcut.key) return false;
+    const combo = shortcut.modifiers.sort().join('+') + '+' + shortcut.key;
+    return RESERVED_SHORTCUTS.has(combo);
+}
+
 function parseKeyEvent(e) {
     const modifiers = [];
     if (e.ctrlKey) modifiers.push('ctrl');
@@ -1523,6 +1665,17 @@ for (const [inputId, actionId] of Object.entries(shortcutInputs)) {
             input.classList.remove('recording');
             recordingShortcut = null;
             await loadShortcuts();
+            return;
+        }
+
+        // Warn about browser-reserved shortcuts
+        if (isReservedShortcut(shortcut)) {
+            input.value = formatShortcut(shortcut) + ' (reserved by browser)';
+            input.classList.remove('recording');
+            input.classList.add('shortcut-warning');
+            setTimeout(() => input.classList.remove('shortcut-warning'), 2000);
+            recordingShortcut = null;
+            await loadShortcuts(); // Revert to previous value
             return;
         }
 
