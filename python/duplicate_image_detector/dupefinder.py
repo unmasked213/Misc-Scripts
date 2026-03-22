@@ -421,6 +421,13 @@ def load_image_normalized(path: Path, cfg) -> Optional[np.ndarray]:
                 exif = None
             if exif:
                 orientation = exif.get(0x0112, None)
+                # Pillow 10+ moved transpose constants to Image.Transpose
+                try:
+                    _FLIP_LR = Image.Transpose.FLIP_LEFT_RIGHT
+                    _FLIP_TB = Image.Transpose.FLIP_TOP_BOTTOM
+                except AttributeError:
+                    _FLIP_LR = Image.FLIP_LEFT_RIGHT
+                    _FLIP_TB = Image.FLIP_TOP_BOTTOM
                 if orientation == 3:
                     im = im.rotate(180, expand=True)
                 elif orientation == 6:
@@ -428,13 +435,13 @@ def load_image_normalized(path: Path, cfg) -> Optional[np.ndarray]:
                 elif orientation == 8:
                     im = im.rotate(90, expand=True)
                 elif orientation == 2:
-                    im = im.transpose(Image.FLIP_LEFT_RIGHT)
+                    im = im.transpose(_FLIP_LR)
                 elif orientation == 4:
-                    im = im.transpose(Image.FLIP_TOP_BOTTOM)
+                    im = im.transpose(_FLIP_TB)
                 elif orientation == 5:
-                    im = im.transpose(Image.FLIP_LEFT_RIGHT).rotate(270, expand=True)
+                    im = im.transpose(_FLIP_LR).rotate(270, expand=True)
                 elif orientation == 7:
-                    im = im.transpose(Image.FLIP_LEFT_RIGHT).rotate(90, expand=True)
+                    im = im.transpose(_FLIP_LR).rotate(90, expand=True)
             if im.mode in ("RGBA", "LA"):
                 color = tuple(int(x) for x in cfg["normalize"]["alpha_matte_rgb"])
                 matte = Image.new("RGB", im.size, color)

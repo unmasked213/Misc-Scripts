@@ -32,6 +32,7 @@ Misc-Scripts/
 ├── browser_extensions/                # Native browser extensions (Chrome/Brave/Edge)
 │   ├── CLAUDE.md                     # Extension development guidelines
 │   ├── README.md                     # User-facing documentation
+│   ├── VIDEO_DOWNLOAD_PROBLEM.md     # Video download troubleshooting notes
 │   └── media-downloader-extension/   # Batch image/video downloader with HLS support
 │       ├── manifest.json             # Extension manifest (Manifest V3)
 │       ├── background.js             # Service worker for downloads
@@ -54,10 +55,17 @@ Misc-Scripts/
 │       ├── reddit_to_redlib_redirector.user.js # Redirect Reddit to Redlib instances
 │       └── video_management_examplesite.user.js # Video management utilities template
 ├── python/                            # Python utilities for media and system management
-│   ├── create_list_of_filenames/
-│   │   ├── list_files_by_folder.py   # Generate organized file lists
+│   ├── auto_typing/
+│   │   ├── content_to_imitate.txt    # Text input file
+│   │   ├── mimic_keystrokes.py       # Simulate human typing
 │   │   └── README.md
-│   ├── Duplicate image detection V2/
+│   ├── bump_dir_level/
+│   │   ├── bump_dir_level.py         # Move subfolder contents up one level
+│   │   └── bump_dir_level_README.md
+│   ├── dir_tree_generator/
+│   │   ├── dir_tree.py               # Generate markdown directory trees
+│   │   └── README.md
+│   ├── duplicate_image_detector/
 │   │   ├── .claude/                  # Local Claude settings for subproject
 │   │   ├── dupefinder.py             # Core duplicate detection engine
 │   │   ├── index.html                # Web UI frontend
@@ -70,23 +78,26 @@ Misc-Scripts/
 │   ├── ha_dashboard_launcher/
 │   │   ├── ha_dashboard_launcher.py  # Home Assistant dashboard window
 │   │   └── README.md
-│   ├── media_stats/
-│   │   ├── dir_tree.py               # Generate markdown directory trees
-│   │   ├── folder_stats.py           # Analyze folder sizes and file counts
-│   │   ├── image_stats.py            # Categorize images by resolution/size
-│   │   ├── README.md
-│   │   └── video_stats.py            # Categorize videos by resolution/length/codec/HDR
-│   ├── Mimic keystrokes (auto typing)/
-│   │   ├── content_to_imitate.txt    # Text input file
-│   │   ├── mimic_keystrokes.py       # Simulate human typing
-│   │   └── README.md
 │   ├── minimize_windows/
 │   │   ├── minimize_windows.py       # Auto-minimize windows by rules
 │   │   ├── MinimizeWindow.ps1        # PowerShell alternative
 │   │   └── README.md
-│   └── Playlist Builder/
-│       └── playlist_generator.py     # Create .m3u playlists with sorting options
+│   ├── playlist_builder/
+│   │   ├── playlist_generator.py     # Create .m3u playlists with sorting options
+│   │   └── README.md
+│   ├── sentinel/                     # Autonomous file management system (in development)
+│   │   ├── HANDOFF.md                # Project handoff document
+│   │   ├── config.py                 # TOML loader with defaults and validation
+│   │   ├── config.toml               # Behaviour configuration
+│   │   ├── image.py                  # Image dedup (pHash, ORB, RANSAC)
+│   │   └── requirements.txt          # Python dependencies
+│   └── stats_scripts/
+│       ├── folder_stats.py           # Analyze folder sizes and file counts
+│       ├── image_stats.py            # Categorize images by resolution/size
+│       ├── README.md
+│       └── video_stats.py            # Categorize videos by resolution/length/codec/HDR
 └── typescript/                        # TypeScript/React UI components
+    ├── README.md                     # Component documentation
     ├── meta_prompt_creator.tsx       # Advanced markdown UI component
     └── meta_prompt_creator_simplified.tsx
 ```
@@ -138,20 +149,23 @@ Misc-Scripts/
 
 | Folder | Main Script | Purpose |
 |--------|-------------|---------|
-| `Duplicate image detection V2/` | `server.py` | Flask web UI for finding duplicate/similar images using perceptual hashing |
-| `media_stats/` | `folder_stats.py`, `image_stats.py`, `video_stats.py`, `dir_tree.py` | Analyze media collections and generate directory trees |
-| `Playlist Builder/` | `playlist_generator.py` | Create .m3u playlists from media files with sorting options |
-| `minimize_windows/` | `minimize_windows.py` | Auto-minimize windows matching configurable rules |
-| `Mimic keystrokes (auto typing)/` | `mimic_keystrokes.py` | Simulate realistic human typing |
+| `auto_typing/` | `mimic_keystrokes.py` | Simulate realistic human typing |
+| `bump_dir_level/` | `bump_dir_level.py` | Move subfolder contents up one directory level |
+| `dir_tree_generator/` | `dir_tree.py` | Generate markdown directory trees with box-drawing characters |
+| `duplicate_image_detector/` | `server.py` | Flask web UI for finding duplicate/similar images using perceptual hashing |
 | `ha_dashboard_launcher/` | `ha_dashboard_launcher.py` | Display Home Assistant dashboard in native window |
-| `create_list_of_filenames/` | `list_files_by_folder.py` | Generate hierarchical file listings |
+| `minimize_windows/` | `minimize_windows.py` | Auto-minimize windows matching configurable rules |
+| `playlist_builder/` | `playlist_generator.py` | Create .m3u playlists from media files with sorting options |
+| `sentinel/` | `config.py`, `image.py` | Autonomous file management system with duplicate detection (in development) |
+| `stats_scripts/` | `folder_stats.py`, `image_stats.py`, `video_stats.py` | Analyze media collections by size, resolution, codec |
 
 **Key Files**:
-- `Duplicate image detection V2/dupefinder.py` - Core detection engine with perceptual hashing
-- `Duplicate image detection V2/index.html` - Modern web UI with light/dark themes
-- `Duplicate image detection V2/requirements.txt` - Dependencies: opencv-python-headless, numpy, pillow, flask, flask-cors
-- `media_stats/dir_tree.py` - Markdown directory tree generator with box-drawing characters
-- `Playlist Builder/playlist_generator.py` - M3U playlist generator with ffprobe metadata sorting
+- `duplicate_image_detector/dupefinder.py` - Core detection engine with perceptual hashing
+- `duplicate_image_detector/index.html` - Modern web UI with light/dark themes
+- `duplicate_image_detector/requirements.txt` - Dependencies: opencv-python-headless, numpy, pillow, flask, flask-cors
+- `dir_tree_generator/dir_tree.py` - Markdown directory tree generator with box-drawing characters
+- `playlist_builder/playlist_generator.py` - M3U playlist generator with ffprobe metadata sorting
+- `sentinel/HANDOFF.md` - Project handoff document with architecture and known bugs
 
 **Common Dependencies**:
 - `Pillow` - Image processing
@@ -200,7 +214,7 @@ Misc-Scripts/
 **Python scripts**:
 ```bash
 # Install Python 3.7+ from python.org with "Add Python to PATH" checked
-pip install -r python/Duplicate\ image\ detection\ V2/requirements.txt
+pip install -r python/duplicate_image_detector/requirements.txt
 # Or for individual scripts, see their README for specific pip commands
 ```
 
@@ -248,9 +262,9 @@ python script_name.py [arguments]
 script_name.bat
 ```
 
-**Duplicate Image Finder V2**:
+**Duplicate Image Finder**:
 ```bash
-cd python/Duplicate\ image\ detection\ V2
+cd python/duplicate_image_detector
 python server.py
 # Then open http://localhost:5000 in browser
 # Or double-click "Launch Duplicate Finder Web.vbs"
@@ -424,7 +438,7 @@ All browser userscripts in this repository MUST follow these rules exactly.
 - [ ] No automated test suite or test documentation
 - [ ] No linter configuration (ESLint, flake8, etc.)
 - [ ] No CI/CD pipeline configured
-- [ ] TypeScript components lack README files
+- [x] ~~TypeScript components lack README files~~ (added `typescript/README.md`)
 
 ### Unclear Configurations
 - [ ] `.claude/settings.local.json` permissions scope is minimal (only `Bash(dir:*)`)
@@ -442,19 +456,32 @@ All browser userscripts in this repository MUST follow these rules exactly.
 
 ## Changelog
 
+### 2026-03-21
+- **Renamed** Python folders to use snake_case naming convention:
+  - `Duplicate image detection V2/` → `duplicate_image_detector/`
+  - `Mimic keystrokes (auto typing)/` → `auto_typing/`
+  - `Playlist Builder/` → `playlist_builder/`
+  - `media_stats/` → `stats_scripts/` (stats scripts only)
+- **Moved** `media_stats/dir_tree.py` to its own folder `dir_tree_generator/`
+- **Added** `python/bump_dir_level/` — move subfolder contents up one directory level
+- **Added** `python/sentinel/` — autonomous file management system with duplicate detection (in development, core architecture complete)
+- **Added** `typescript/README.md` — component documentation
+- **Added** `browser_extensions/VIDEO_DOWNLOAD_PROBLEM.md` — video download troubleshooting
+- **Removed** `python/create_list_of_filenames/` (no longer in repository)
+
 ### 2026-02-28
 - **Added** `batch/rotate_display/rotate-display.bat`
   - Toggle any display between Landscape and Portrait orientation
   - Uses embedded C#/P/Invoke to call Windows display APIs directly
   - Bypasses AMD Adrenalin driver issues with display rotation
   - Prompts for display number, applies change immediately
-- **Added** `python/Playlist Builder/playlist_generator.py`
+- **Added** `python/playlist_builder/playlist_generator.py`
   - Create .m3u playlists from media files (videos, images, audio, or all)
   - Sort by name, size, date, duration, or bitrate
   - ffprobe integration for accurate duration/bitrate metadata (falls back to file size)
   - Detects existing playlists and offers rescan or re-sort
   - Double-click friendly with interactive menus
-- **Added** `python/media_stats/dir_tree.py`
+- **Added** `python/dir_tree_generator/dir_tree.py`
   - Generate markdown directory trees with box-drawing characters
   - Folder icons with inline file/folder counts and sizes
   - Boxed header with scan metadata (date, depth, elapsed time)

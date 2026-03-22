@@ -24,13 +24,15 @@ Practical utility scripts for Windows users: automation, media processing, brows
 - **[rotate-display.bat](batch/rotate_display/)** - Toggle display orientation (bypasses AMD Adrenalin)
 
 ### Python
-- **[Duplicate Image Finder](python/Duplicate%20image%20detection%20V2/)** - Web UI for finding similar images
-- **[Media Stats](python/media_stats/)** - Analyze folders, images, and videos by size/resolution/codec
-- **[Playlist Builder](python/Playlist%20Builder/)** - Create sorted .m3u playlists from media files
+- **[Duplicate Image Finder](python/duplicate_image_detector/)** - Web UI for finding similar images
+- **[Stats Scripts](python/stats_scripts/)** - Analyze folders, images, and videos by size/resolution/codec
+- **[Directory Tree Generator](python/dir_tree_generator/)** - Generate markdown directory trees
+- **[Playlist Builder](python/playlist_builder/)** - Create sorted .m3u playlists from media files
 - **[Minimize Windows](python/minimize_windows/)** - Auto-minimize windows by title keywords
-- **[Mimic Keystrokes](python/Mimic%20keystrokes%20%28auto%20typing%29/)** - Simulate human typing
+- **[Auto Typing](python/auto_typing/)** - Simulate human typing
 - **[HA Dashboard Launcher](python/ha_dashboard_launcher/)** - Home Assistant in a native window
-- **[List Files](python/create_list_of_filenames/)** - Generate hierarchical file listings
+- **[Bump Dir Level](python/bump_dir_level/)** - Move subfolder contents up one level
+- **[Sentinel](python/sentinel/)** - Autonomous file management system (in development)
 
 ### Browser Extensions
 - **[Media Downloader](browser_extensions/media-downloader-extension/)** - Batch download images and videos from tabs with HLS streaming support
