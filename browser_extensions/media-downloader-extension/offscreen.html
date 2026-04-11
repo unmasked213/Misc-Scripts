@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Media Downloader - Offscreen</title>
+</head>
+<body>
+<script>
+/**
+ * Offscreen document for video segment downloading and assembly.
+ * Runs outside service worker, survives SW termination, has DOM/Blob access.
+ *
+ * Also handles preview snippet blob creation for popup preview.
+ */
+
+const SEGMENT_TIMEOUT_MS = 30000; // 30 second timeout per segment
+const MAX_RETRIES = 2;
+
+/**
+ * Fetch with timeout
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = SEGMENT_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error(`Timeout after ${timeoutMs}ms`);
+        }
+        throw err;
+    }
+}
+
+/**
+ * Fetch segment with retry logic
+ */
+async function fetchSegmentWithRetry(url, options = {}, retries = MAX_RETRIES) {
+    let lastError;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const response = await fetchWithTimeout(url, options);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            return await response.arrayBuffer();
+        } catch (err) {
+            lastError = err;
+            console.warn(`Segment attempt ${attempt + 1}/${retries + 1} failed: ${err.message}`);
+
+            if (attempt < retries) {
+                // Exponential backoff: 1s, 2s, 4s...
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    throw lastError;
+}
+
+// Track active blob URLs for cleanup
+const activeBlobUrls = new Map();
+
+/**
+ * Create a blob URL from array buffer (for preview)
+ */
+function createPreviewBlob(buffer, contentType) {
+    try {
+        const blob = new Blob([new Uint8Array(buffer)], { type: contentType });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Track for cleanup
+        activeBlobUrls.set(blobUrl, Date.now());
+
+        return { success: true, blobUrl: blobUrl };
+    } catch (err) {
+        return { error: err.message };
+    }
+}
+
+/**
+ * Revoke a blob URL
+ */
+function revokeBlobUrl(blobUrl) {
+    try {
+        URL.revokeObjectURL(blobUrl);
+        activeBlobUrls.delete(blobUrl);
+        return { success: true };
+    } catch (err) {
+        return { error: err.message };
+    }
+}
+
+/**
+ * Cleanup old blob URLs (older than 5 minutes)
+ */
+function cleanupOldBlobUrls() {
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    for (const [url, timestamp] of activeBlobUrls.entries()) {
+        if (timestamp < fiveMinutesAgo) {
+            URL.revokeObjectURL(url);
+            activeBlobUrls.delete(url);
+        }
+    }
+}
+
+// Cleanup every minute
+setInterval(cleanupOldBlobUrls, 60000);
+
+// Message handler
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.target !== 'offscreen') return;
+
+    switch (message.action) {
+        case 'download-hls':
+            downloadHLS(message.data).then(sendResponse);
+            return true; // Will respond async
+
+        case 'create-preview-blob':
+            // Create blob URL from buffer data
+            const result = createPreviewBlob(message.buffer, message.contentType);
+            sendResponse(result);
+            return false;
+
+        case 'revoke-blob':
+            sendResponse(revokeBlobUrl(message.blobUrl));
+            return false;
+
+        case 'ping':
+            sendResponse({ alive: true });
+            return false;
+    }
+});
+
+/**
+ * Download all HLS segments and assemble into single file
+ */
+async function downloadHLS(data) {
+    const { segments, filename, tabId, decryptionKey } = data;
+
+    try {
+        // Report starting
+        chrome.runtime.sendMessage({
+            action: 'hls-progress',
+            tabId,
+            status: 'downloading',
+            current: 0,
+            total: segments.length
+        });
+
+        const buffers = [];
+        let downloaded = 0;
+        let failed = 0;
+
+        for (const segment of segments) {
+            try {
+                let buffer = await fetchSegmentWithRetry(segment.url, {
+                    credentials: 'include',
+                    headers: {
+                        'Accept': '*/*'
+                    }
+                });
+
+                // Decrypt if AES-128 key provided
+                if (decryptionKey && segment.encrypted) {
+                    buffer = await decryptSegment(buffer, decryptionKey, segment.iv);
+                }
+
+                buffers.push(buffer);
+                downloaded++;
+
+                // Report progress
+                chrome.runtime.sendMessage({
+                    action: 'hls-progress',
+                    tabId,
+                    status: 'downloading',
+                    current: downloaded,
+                    total: segments.length,
+                    failed: failed
+                });
+
+            } catch (err) {
+                console.warn(`Segment failed after retries: ${err.message} - ${segment.url}`);
+                failed++;
+                // Continue with remaining segments
+            }
+        }
+
+        if (buffers.length === 0) {
+            return { error: 'No segments downloaded' };
+        }
+
+        // Report assembling
+        chrome.runtime.sendMessage({
+            action: 'hls-progress',
+            tabId,
+            status: 'assembling',
+            current: buffers.length,
+            total: segments.length
+        });
+
+        // Concatenate all buffers
+        const totalLength = buffers.reduce((sum, b) => sum + b.byteLength, 0);
+        const combined = new Uint8Array(totalLength);
+        let offset = 0;
+
+        for (const buffer of buffers) {
+            combined.set(new Uint8Array(buffer), offset);
+            offset += buffer.byteLength;
+        }
+
+        // Create blob and trigger download
+        // TS segments concatenate directly into a playable TS file
+        const blob = new Blob([combined], { type: 'video/mp2t' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Use anchor to trigger download
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename.replace(/\.(mp4|webm|m3u8)$/i, '.ts');
+        document.body.appendChild(a);
+        a.click();
+
+        // Cleanup
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+        }, 1000);
+
+        // Report complete
+        chrome.runtime.sendMessage({
+            action: 'hls-progress',
+            tabId,
+            status: 'complete',
+            current: buffers.length,
+            total: segments.length,
+            size: totalLength,
+            failed: failed
+        });
+
+        return {
+            success: true,
+            segments: buffers.length,
+            size: totalLength,
+            failed: failed
+        };
+
+    } catch (err) {
+        chrome.runtime.sendMessage({
+            action: 'hls-progress',
+            tabId,
+            status: 'error',
+            error: err.message
+        });
+
+        return { error: err.message };
+    }
+}
+
+/**
+ * Decrypt AES-128 encrypted segment
+ */
+async function decryptSegment(encryptedBuffer, keyData, ivHex) {
+    try {
+        // Import key
+        const key = await crypto.subtle.importKey(
+            'raw',
+            keyData,
+            { name: 'AES-CBC' },
+            false,
+            ['decrypt']
+        );
+
+        // Parse IV (16 bytes) - if not provided, use segment sequence as IV
+        let iv;
+        if (ivHex) {
+            // Remove 0x prefix if present
+            const hex = ivHex.replace(/^0x/i, '');
+            iv = new Uint8Array(hex.match(/.{2}/g).map(byte => parseInt(byte, 16)));
+        } else {
+            // Default IV is segment index as 16-byte big-endian
+            iv = new Uint8Array(16);
+        }
+
+        // Decrypt
+        const decrypted = await crypto.subtle.decrypt(
+            { name: 'AES-CBC', iv: iv },
+            key,
+            encryptedBuffer
+        );
+
+        return decrypted;
+    } catch (err) {
+        console.error('Decryption failed:', err);
+        // Return original buffer if decryption fails
+        return encryptedBuffer;
+    }
+}
+
+console.log('[MediaDownloader] Offscreen document ready');
+</script>
+</body>
+</html>

@@ -9,10 +9,10 @@ dist/
 build/
 .Python
 
-# Cython
-*.c
-*.cpp
-*.html
+# .NET / C#
+bin/
+obj/
+*.pdb
 
 # IDE
 .vscode/

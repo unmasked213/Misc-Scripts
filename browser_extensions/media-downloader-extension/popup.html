@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+/* ========================================================================
+ * IMAGE DOWNLOADER - POPUP UI
+ * Built on Shared UI Design System tokens
+ * ======================================================================== */
+
+/* -- ROOT TOKENS --------------------------------------------------------- */
+:root {
+  /* Spacing Scale */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+
+  /* Radius Scale */
+  --ui-radius-s: 8px;
+  --ui-radius-m: 12px;
+  --ui-radius-l: 18px;
+  --ui-radius-pill: 999px;
+
+  /* Typography */
+  --ui-font-xs: 0.75rem;
+  --ui-font-s: 0.86rem;
+  --ui-font-m: 1rem;
+  --ui-font-l: 1.15rem;
+  --ui-font-weight-m: 400;
+  --ui-font-weight-l: 500;
+
+  /* Motion */
+  --ui-motion-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+  --ui-motion-med: 240ms cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* Switch/Toggle Motion - MD3 Expressive bounce */
+  --ui-switch-motion: 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ui-switch-secondary-motion: 250ms ease-out;
+
+  /* Switch/Toggle Dimensions */
+  --ui-switch-track-width: 48px;
+  --ui-switch-track-height: 32px;
+  --ui-switch-track-radius: 16px;
+  --ui-switch-outline-width: 2px;
+  --ui-switch-thumb-size-on: 24px;
+
+  /* Input Field Dimensions */
+  --ui-input-height: 50px;
+  --ui-input-padding-x: 16px;
+  --ui-input-padding-y: 8px;
+  --ui-border-width-l: 3px;
+
+  /* State */
+  --ui-state-disabled-opacity: 0.4;
+}
+
+/* -- DARK THEME ---------------------------------------------------------- */
+:root {
+  --ui-surface: rgb(11, 14, 23);
+  --ui-surface-alt: rgb(24, 28, 38);
+  --ui-elevated-1: rgb(28, 31, 41);
+  --ui-elevated-2: rgb(40, 43, 54);
+  --ui-elevated-3: rgb(56, 60, 72);
+
+  --ui-text: rgb(228, 228, 242);
+  --ui-text-mute: rgb(145, 147, 159);
+  --ui-text-strong: rgb(240, 240, 252);
+
+  --ui-accent: rgb(30, 171, 208);
+  --ui-text-on-accent: rgb(0, 36, 46);
+
+  --ui-success: rgb(0, 162, 103);
+  --ui-error: rgb(255, 113, 100);
+
+  --ui-border-color-light: rgba(228, 228, 242, 0.10);
+  --ui-border-color-med: rgba(228, 228, 242, 0.22);
+
+  --ui-state-focus-ring: rgb(80, 210, 240);
+  --ui-state-hover: rgba(228, 228, 242, 0.08);
+
+  /* Switch/Toggle Colors */
+  --ui-switch-track-off: rgb(35, 37, 47);
+  --ui-switch-track-on: var(--ui-accent);
+  --ui-switch-outline: rgb(115, 117, 129);
+  --ui-switch-thumb-off: rgb(115, 117, 129);
+  --ui-switch-thumb-on: rgb(0, 36, 46);
+
+  /* Shadows */
+  --ui-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.60);
+  --ui-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.70);
+
+  /* Input Field Colors */
+  --ui-input-bg: rgb(28, 31, 41);
+}
+
+/* -- RESET & BASE -------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 300px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--ui-font-m);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  line-height: 1.4;
+  padding: var(--ui-space-5);
+  transition: width var(--ui-motion-med);
+}
+
+body.image-modal-open {
+  width: 450px;
+}
+
+/* -- HEADER -------------------------------------------------------------- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-5);
+  transition: opacity var(--ui-motion-med), transform var(--ui-motion-med), margin var(--ui-motion-med), height var(--ui-motion-med);
+}
+
+.header--hidden {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+  margin-bottom: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.header__icon {
+  width: 10px;
+  height: 10px;
+  background: var(--ui-accent);
+  border-radius: var(--ui-radius-s);
+}
+
+.header__title {
+  font-size: var(--ui-font-l);
+  font-weight: var(--ui-font-weight-l);
+  color: var(--ui-text-strong);
+}
+
+.header__pin {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--ui-text-mute);
+  cursor: pointer;
+  border-radius: var(--ui-radius-s);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--ui-motion-fast), color var(--ui-motion-fast);
+}
+
+.header__pin:hover {
+  background: var(--ui-state-hover);
+  color: var(--ui-accent);
+}
+
+/* Hide pin button when already in detached window (only the original, not the close btn) */
+body.is-detached #pin-btn {
+  display: none;
+}
+
+/* Detached window gets more generous layout */
+body.is-detached {
+  width: auto;
+  min-width: 320px;
+}
+
+body.is-detached.image-modal-open {
+  width: auto;
+}
+
+/* -- DETACHED GRID MODE -------------------------------------------------- */
+/* Hide normal popup UI when in detached mode (grid is the main view) */
+body.is-detached .header,
+body.is-detached .media-type,
+body.is-detached .action-area__download,
+body.is-detached .divider,
+body.is-detached .section:has(> .section__title) {
+  display: none !important;
+}
+
+body.is-detached {
+  padding: 0;
+  overflow: hidden;
+}
+
+body.is-detached #image-modal.active {
+  background: var(--ui-surface);
+}
+
+body.is-detached #image-modal .modal {
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+}
+
+body.is-detached #image-modal .modal__body--grid {
+  max-height: none;
+  flex: 1;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: minmax(200px, auto);
+  gap: var(--ui-space-3);
+}
+
+/* -- SECTIONS ------------------------------------------------------------ */
+.section {
+  margin-bottom: var(--ui-space-5);
+}
+
+.section__title {
+  font-size: var(--ui-font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ui-text-mute);
+  margin-bottom: var(--ui-space-3);
+}
+
+/* -- BUTTONS ------------------------------------------------------------- */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--ui-space-3) var(--ui-space-5);
+  font-size: var(--ui-font-l);
+  font-weight: var(--ui-font-weight-l);
+  border: none;
+  border-radius: var(--ui-radius-pill);
+  cursor: pointer;
+  transition: background var(--ui-motion-fast), transform var(--ui-motion-fast);
+  min-height: 52px;
+  gap: var(--ui-space-2);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ui-state-focus-ring);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: var(--ui-state-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn--secondary {
+  background: var(--ui-elevated-2);
+  color: var(--ui-text);
+  border: 2px solid var(--ui-border-color-med);
+  min-width: 44px;
+  width: 44px;
+  padding: 0;
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--ui-elevated-3);
+  border-color: var(--ui-accent);
+}
+
+/* Button row layout */
+.btn-row {
+  display: flex;
+  gap: var(--ui-space-2);
+}
+
+.btn-row .btn--primary {
+  flex: 1;
+}
+
+.btn-row .btn--secondary {
+  flex-shrink: 0;
+}
+
+/* -- DIVIDER ------------------------------------------------------------- */
+.divider {
+  height: 1px;
+  background: var(--ui-border-color-light);
+  margin: var(--ui-space-5) 0;
+}
+
+/* -- OPTIONS ------------------------------------------------------------- */
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ui-space-2) 0;
+}
+
+.option__label {
+  font-size: var(--ui-font-m);
+  color: var(--ui-text);
+}
+
+/* -- TOGGLE SWITCH (MD3 Expressive) -------------------------------------- */
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.toggle__input {
+  /* Position absolutely for accessibility (not display: none) */
+  position: absolute;
+  opacity: 0;
+  width: var(--ui-switch-track-width);
+  height: var(--ui-switch-track-height);
+  cursor: pointer;
+  margin: 0;
+  z-index: 1;
+}
+
+.toggle__track {
+  /* Dimensions */
+  position: relative;
+  display: inline-block;
+  width: var(--ui-switch-track-width);
+  height: var(--ui-switch-track-height);
+  border-radius: var(--ui-switch-track-radius);
+
+  /* Default state (off) */
+  background: var(--ui-switch-track-off);
+  border: var(--ui-switch-outline-width) solid var(--ui-switch-outline);
+
+  /* Transitions */
+  transition:
+    background-color var(--ui-switch-secondary-motion),
+    border-color var(--ui-switch-secondary-motion),
+    transform var(--ui-motion-fast) ease-out;
+}
+
+.toggle__thumb {
+  /* Position */
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%) scale(0.67);
+
+  /* Dimensions - always 24px in DOM, scale to simulate size change */
+  width: var(--ui-switch-thumb-size-on);
+  height: var(--ui-switch-thumb-size-on);
+  border-radius: 50%;
+
+  /* Default state (off) */
+  background: var(--ui-switch-thumb-off);
+
+  /* Transitions - smooth bounce animation */
+  transition:
+    transform var(--ui-switch-motion),
+    background-color var(--ui-switch-secondary-motion),
+    box-shadow var(--ui-switch-secondary-motion);
+
+  /* Subtle shadow for depth */
+  box-shadow: var(--ui-shadow-1);
+}
+
+/* Checked state (on) - track */
+.toggle__input:checked + .toggle__track {
+  background: var(--ui-switch-track-on);
+  border-color: transparent;
+}
+
+/* Checked state (on) - thumb: move right and scale to full size */
+.toggle__input:checked + .toggle__track .toggle__thumb {
+  transform:
+    translateX(calc(var(--ui-switch-track-width) - var(--ui-switch-thumb-size-on) - 8px))
+    translateY(-50%)
+    scale(1);
+  background: var(--ui-switch-thumb-on);
+}
+
+/* Focus state (keyboard navigation) */
+.toggle__input:focus-visible + .toggle__track {
+  outline: 2px solid var(--ui-state-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Remove focus on mouse click */
+.toggle__input:focus:not(:focus-visible) + .toggle__track {
+  outline: none;
+}
+
+/* Hover state (desktop only) */
+@media (hover: hover) and (pointer: fine) {
+  .toggle:hover .toggle__track {
+    box-shadow: 0 0 0 8px var(--ui-state-hover);
+  }
+
+  .toggle:hover .toggle__thumb {
+    box-shadow: var(--ui-shadow-2);
+  }
+}
+
+/* Active/pressed state */
+.toggle:active .toggle__track {
+  transform: scale(0.98);
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .toggle__thumb,
+  .toggle__track {
+    transition: none !important;
+  }
+}
+
+/* -- TEXT INPUT (Pill with Floating Label) ------------------------------- */
+.input-wrapper {
+  position: relative;
+  width: 100%;
+  height: var(--ui-input-height);
+  margin-top: var(--ui-space-3);
+}
+
+.input-pill {
+  position: relative;
+  width: 100%;
+  height: var(--ui-input-height);
+  border-radius: var(--ui-input-height);
+  border: var(--ui-border-width-l) solid transparent;
+  background: var(--ui-input-bg);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  transition: border-color var(--ui-motion-med);
+  overflow: visible;
+}
+
+.input-pill:focus-within {
+  border-color: var(--ui-accent);
+}
+
+.input-label {
+  position: absolute;
+  left: var(--ui-input-padding-x);
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  background: transparent;
+  font-size: var(--ui-font-m);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ui-text-mute);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
+  transition:
+    transform var(--ui-motion-med),
+    color var(--ui-motion-med);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Elevated state - label moves above input and shrinks */
+.input-pill.has-value .input-label,
+.input-pill:focus-within .input-label {
+  transform: translateY(calc(-1 * var(--ui-input-height) * 0.95)) scale(0.75);
+  color: var(--ui-text);
+}
+
+.input-field {
+  position: relative;
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: var(--ui-input-padding-y) var(--ui-input-padding-x);
+  font-size: var(--ui-font-m);
+  font-weight: 400;
+  color: var(--ui-text);
+  -webkit-font-smoothing: antialiased;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.input-field::placeholder {
+  color: transparent;
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .input-label,
+  .input-pill {
+    transition: none !important;
+  }
+}
+
+/* Custom number input */
+.number-input {
+  display: flex;
+  align-items: center;
+  background: var(--ui-elevated-1);
+  border: 2px solid var(--ui-border-color-med);
+  border-radius: var(--ui-radius-s);
+  overflow: hidden;
+  transition: border-color var(--ui-motion-fast);
+}
+
+.number-input:focus-within {
+  border-color: var(--ui-accent);
+}
+
+.number-input__field {
+  width: 52px;
+  padding: var(--ui-space-2) var(--ui-space-2);
+  border: none;
+  background: transparent;
+  color: var(--ui-text);
+  font-size: var(--ui-font-m);
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.number-input__field::-webkit-inner-spin-button,
+.number-input__field::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.number-input__field:focus {
+  outline: none;
+}
+
+.number-input__btns {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--ui-border-color-med);
+}
+
+.number-input__btn {
+  width: 24px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-elevated-2);
+  border: none;
+  color: var(--ui-text-mute);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  transition: background var(--ui-motion-fast), color var(--ui-motion-fast);
+}
+
+.number-input__btn:hover {
+  background: var(--ui-elevated-3);
+  color: var(--ui-text);
+}
+
+.number-input__btn:first-child {
+  border-bottom: 1px solid var(--ui-border-color-med);
+}
+
+/* -- STATUS -------------------------------------------------------------- */
+.status {
+  font-size: var(--ui-font-s);
+  color: var(--ui-text-mute);
+  text-align: center;
+  padding: var(--ui-space-3);
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status--success {
+  color: var(--ui-success);
+}
+
+.status--error {
+  color: var(--ui-error);
+}
+
+/* -- ACTION AREA (Button / Progress crossfade) --------------------------- */
+.action-area {
+  display: grid;
+}
+
+.action-area__download,
+.action-area__progress {
+  grid-area: 1 / 1;
+  transition: opacity var(--ui-motion-med), transform var(--ui-motion-med);
+}
+
+.action-area__download {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.action-area__progress {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Active state - show progress, hide button */
+.action-area--active .action-area__download {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.action-area--active .action-area__download {
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+}
+
+.action-area--active .action-area__progress {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  visibility: visible;
+  height: auto;
+  overflow: visible;
+}
+
+/* -- PROGRESS ------------------------------------------------------------ */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-3);
+}
+
+.progress__bar {
+  height: 6px;
+  background: var(--ui-elevated-3);
+  border-radius: var(--ui-radius-pill);
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--ui-accent);
+  border-radius: var(--ui-radius-pill);
+  transition: width 200ms ease-out;
+  width: 0%;
+}
+
+.progress__stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress__text {
+  font-size: var(--ui-font-s);
+  color: var(--ui-text-mute);
+}
+
+.progress__dupes {
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+}
+
+.progress__controls {
+  display: flex;
+  gap: var(--ui-space-2);
+}
+
+.progress__controls .btn {
+  flex: 1;
+  min-height: 40px;
+  font-size: var(--ui-font-s);
+}
+
+.btn--warning {
+  background: var(--ui-elevated-2);
+  color: var(--ui-text);
+  border: 2px solid rgb(232, 177, 0);
+}
+
+.btn--warning:hover:not(:disabled) {
+  background: var(--ui-elevated-3);
+}
+
+.btn--danger {
+  position: relative;
+  background: transparent;
+  color: var(--ui-error);
+  overflow: hidden;
+}
+
+.btn--danger::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--ui-error);
+  opacity: 0;
+  transition: opacity var(--ui-motion-fast);
+  border-radius: inherit;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn--danger:hover:not(:disabled)::before {
+    opacity: 0.15;
+  }
+
+  .btn--danger:hover:not(:disabled) {
+    box-shadow: var(--ui-shadow-1);
+  }
+}
+/* -- MEDIA TYPE SELECTOR ------------------------------------------------- */
+.media-type {
+  display: flex;
+  gap: var(--ui-space-1);
+  background: var(--ui-elevated-1);
+  padding: 4px;
+  border-radius: var(--ui-radius-m);
+  margin-bottom: var(--ui-space-4);
+}
+
+.media-type__btn {
+  flex: 1;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border: none;
+  background: transparent;
+  color: var(--ui-text-mute);
+  font-size: var(--ui-font-s);
+  font-weight: var(--ui-font-weight-l);
+  border-radius: var(--ui-radius-s);
+  cursor: pointer;
+  transition: background var(--ui-motion-fast), color var(--ui-motion-fast);
+}
+
+.media-type__btn:hover {
+  color: var(--ui-text);
+}
+
+.media-type__btn.active {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+/* -- VIDEO MODAL --------------------------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--ui-motion-med), visibility var(--ui-motion-med);
+  z-index: 100;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: var(--ui-surface);
+  border-radius: var(--ui-radius-m);
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal__header {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border-color-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal__title {
+  font-size: var(--ui-font-m);
+  font-weight: var(--ui-font-weight-l);
+  color: var(--ui-text-strong);
+}
+
+.modal__close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--ui-text-mute);
+  cursor: pointer;
+  border-radius: var(--ui-radius-s);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal__close:hover {
+  background: var(--ui-state-hover);
+  color: var(--ui-text);
+}
+
+.modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--ui-space-3);
+  min-height: 120px;
+  max-height: 280px;
+}
+
+.modal__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ui-text-mute);
+  font-size: var(--ui-font-s);
+  text-align: center;
+  padding: var(--ui-space-4);
+}
+
+.video-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-2);
+}
+
+.video-card {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  background: var(--ui-elevated-1);
+  border-radius: var(--ui-radius-s);
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: background var(--ui-motion-fast), border-color var(--ui-motion-fast);
+}
+
+.video-card:hover {
+  background: var(--ui-elevated-2);
+}
+
+.video-card.selected {
+  border-color: var(--ui-accent);
+}
+
+.video-card__checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ui-border-color-med);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.video-card.selected .video-card__checkbox {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+}
+
+.video-card__checkbox svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ui-text-on-accent);
+  opacity: 0;
+}
+
+.video-card.selected .video-card__checkbox svg {
+  opacity: 1;
+}
+
+.video-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-card__source {
+  font-size: var(--ui-font-s);
+  color: var(--ui-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-card__meta {
+  display: flex;
+  gap: var(--ui-space-3);
+  margin-top: 2px;
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+}
+
+.video-card__origin {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--ui-elevated-3);
+}
+
+.video-card__origin.origin-dom {
+  background: var(--ui-success);
+  color: #fff;
+}
+
+.video-card__origin.origin-playing {
+  background: #e91e63;
+  color: #fff;
+}
+
+.video-card__origin.origin-play {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+.video-card__origin.origin-net {
+  background: var(--ui-elevated-3);
+  color: var(--ui-text-mute);
+}
+
+.video-card__origin.origin-stream {
+  background: #ff9800;
+  color: #000;
+}
+
+.video-card__origin.origin-verified {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+.video-card.is-stream {
+  opacity: 0.85;
+  border-color: #ff9800;
+}
+
+.video-card.is-stream .video-card__checkbox {
+  /* Still show checkbox for streams */
+}
+
+.stream-note {
+  color: #ff9800;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.video-card.unverified {
+  opacity: 0.6;
+}
+
+.video-card.unverified .video-card__origin {
+  background: var(--ui-elevated-3);
+  color: var(--ui-text-mute);
+}
+
+.video-card__play {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: var(--ui-elevated-3);
+  color: var(--ui-text);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.video-card__play:hover {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+.video-card__play svg {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+}
+
+.modal__player {
+  border-top: 1px solid var(--ui-border-color-light);
+  background: #000;
+  display: none;
+}
+
+.modal__player.active {
+  display: block;
+}
+
+.player__video {
+  width: 100%;
+  max-height: 160px;
+  display: block;
+}
+
+.modal__footer {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-top: 1px solid var(--ui-border-color-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal__selection-info {
+  font-size: var(--ui-font-s);
+  color: var(--ui-text-mute);
+}
+
+.modal__actions {
+  display: flex;
+  gap: var(--ui-space-2);
+}
+
+.modal__actions .btn {
+  min-height: 36px;
+  padding: var(--ui-space-2) var(--ui-space-4);
+  font-size: var(--ui-font-s);
+}
+
+/* -- IMAGE MODAL --------------------------------------------------------- */
+#image-modal .modal {
+  max-height: none;
+  height: auto;
+}
+
+/* -- IMAGE MODAL GRID ---------------------------------------------------- */
+.modal__body--grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: minmax(140px, auto);
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-3);
+  max-height: 450px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.modal__body--grid .modal__empty {
+  grid-column: 1 / -1;
+}
+
+.modal__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border-color-light);
+  background: var(--ui-surface-alt);
+}
+
+.modal__select-btn {
+  padding: var(--ui-space-1) var(--ui-space-2);
+  font-size: var(--ui-font-xs);
+  background: var(--ui-elevated-2);
+  border: 1px solid var(--ui-border-color-med);
+  border-radius: var(--ui-radius-s);
+  color: var(--ui-text);
+  cursor: pointer;
+  transition: background var(--ui-motion-fast);
+}
+
+.modal__select-btn:hover {
+  background: var(--ui-elevated-3);
+}
+
+.modal__sort-select {
+  padding: var(--ui-space-1) var(--ui-space-2);
+  padding-right: 22px;
+  font-size: var(--ui-font-xs);
+  font-family: inherit;
+  background: var(--ui-elevated-2);
+  border: 1px solid var(--ui-border-color-med);
+  border-radius: var(--ui-radius-s);
+  color: var(--ui-text);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239193a0' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 12px;
+  transition: border-color var(--ui-motion-fast);
+}
+
+.modal__sort-select:hover {
+  border-color: var(--ui-accent);
+}
+
+.modal__sort-select:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+}
+
+.modal__sort-select option {
+  background: var(--ui-elevated-1);
+  color: var(--ui-text);
+}
+
+.modal__image-count {
+  margin-left: auto;
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+}
+
+/* -- MIN-SIZE SLIDER ----------------------------------------------------- */
+.modal__min-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--ui-space-2) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border-color-light);
+  background: var(--ui-surface-alt);
+}
+
+.modal__min-size-label {
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+  white-space: nowrap;
+}
+
+.modal__min-size-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--ui-elevated-3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.modal__min-size-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+  cursor: pointer;
+  border: 2px solid var(--ui-text-on-accent);
+  box-shadow: var(--ui-shadow-1);
+}
+
+.modal__min-size-value {
+  font-size: var(--ui-font-xs);
+  font-weight: 600;
+  color: var(--ui-text);
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- HOVER PREVIEW ------------------------------------------------------- */
+.image-preview {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 120ms ease-out, transform 120ms ease-out;
+  max-width: 320px;
+  max-height: 320px;
+  border-radius: var(--ui-radius-m);
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--ui-border-color-med);
+  background: var(--ui-elevated-1);
+}
+
+.image-preview.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.image-preview__img {
+  display: block;
+  max-width: 320px;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.image-preview__info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 8px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  font-size: 11px;
+  color: white;
+  text-align: center;
+}
+
+/* -- KEYBOARD-FOCUSED CARD ----------------------------------------------- */
+.image-card.keyboard-focus {
+  outline: 2px solid var(--ui-state-focus-ring);
+  outline-offset: 1px;
+  transform: scale(1.03);
+}
+
+/* -- FOOTER FILESIZE ESTIMATE -------------------------------------------- */
+.modal__selection-size {
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+  margin-left: var(--ui-space-2);
+}
+
+/* Live scanning indicator */
+.image-live-indicator {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4ade80;
+  letter-spacing: 0.05em;
+  margin-left: var(--ui-space-2);
+}
+
+.image-live-indicator.active {
+  display: flex;
+}
+
+.image-live-indicator__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.modal__filter-btn {
+  padding: var(--ui-space-1) var(--ui-space-2);
+  font-size: var(--ui-font-xs);
+  background: transparent;
+  border: none;
+  color: var(--ui-text-mute);
+  cursor: pointer;
+  border-radius: var(--ui-radius-s);
+  transition: background var(--ui-motion-fast), color var(--ui-motion-fast);
+}
+
+.modal__filter-btn:hover {
+  color: var(--ui-text);
+}
+
+.modal__filter-btn.active {
+  background: var(--ui-elevated-2);
+  color: var(--ui-text);
+}
+
+.modal__header-actions {
+  display: flex;
+  gap: var(--ui-space-1);
+  margin-left: auto;
+  margin-right: var(--ui-space-3);
+}
+
+/* Image Card */
+.image-card {
+  position: relative;
+  border-radius: var(--ui-radius-s);
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color var(--ui-motion-fast), transform var(--ui-motion-fast);
+  background: var(--ui-elevated-1);
+  aspect-ratio: 1;
+}
+
+.image-card:hover {
+  transform: scale(1.03);
+}
+
+.image-card.selected {
+  border-color: var(--ui-accent);
+}
+
+.image-card__img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-card__checkbox {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--ui-motion-fast), background var(--ui-motion-fast);
+}
+
+.image-card:hover .image-card__checkbox,
+.image-card.selected .image-card__checkbox {
+  opacity: 1;
+}
+
+.image-card.selected .image-card__checkbox {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+}
+
+.image-card__checkbox svg {
+  width: 14px;
+  height: 14px;
+  color: white;
+  opacity: 0;
+}
+
+.image-card.selected .image-card__checkbox svg {
+  opacity: 1;
+}
+
+.image-card__meta {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 6px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  font-size: 10px;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+}
+
+.image-card__size-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  border-radius: 3px;
+  background: var(--ui-elevated-3);
+  color: var(--ui-text-mute);
+}
+
+.image-card__size-badge.large {
+  background: var(--ui-success);
+  color: white;
+}
+
+.image-card__size-badge.medium {
+  background: var(--ui-accent);
+  color: var(--ui-text-on-accent);
+}
+
+/* -- SHORTCUTS SECTION --------------------------------------------------- */
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ui-space-2) 0;
+}
+
+.shortcut-label {
+  font-size: var(--ui-font-s);
+  color: var(--ui-text);
+}
+
+.shortcut-key {
+  font-family: monospace;
+  font-size: var(--ui-font-xs);
+  padding: var(--ui-space-1) var(--ui-space-2);
+  background: var(--ui-elevated-2);
+  border-radius: var(--ui-radius-s);
+  color: var(--ui-text-mute);
+}
+
+.shortcut-config {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+}
+
+.shortcut-input {
+  width: 100px;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  font-family: monospace;
+  font-size: var(--ui-font-xs);
+  background: var(--ui-elevated-1);
+  border: 2px solid var(--ui-border-color-med);
+  border-radius: var(--ui-radius-s);
+  color: var(--ui-text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.shortcut-input:focus {
+  border-color: var(--ui-accent);
+  outline: none;
+}
+
+.shortcut-input.recording {
+  border-color: var(--ui-error);
+  animation: pulse 1s infinite;
+}
+
+.shortcut-input.shortcut-warning {
+  border-color: var(--ui-error);
+  color: var(--ui-error);
+  font-size: 11px;
+}
+
+.shortcut-clear {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--ui-text-mute);
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: var(--ui-radius-s);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shortcut-clear:hover {
+  background: var(--ui-state-hover);
+  color: var(--ui-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header__icon"></div>
+    <h1 class="header__title">Media Downloader</h1>
+    <button class="header__pin" id="pin-btn" title="Detach into persistent window">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 17v5"/>
+        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1 1 1 0 0 1 1 1z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="media-type" id="media-type">
+      <button class="media-type__btn active" data-mode="images">Images</button>
+      <button class="media-type__btn" data-mode="videos">Videos</button>
+    </div>
+    
+    <div class="action-area" id="action-area">
+      <div class="action-area__download">
+        <div class="btn-row">
+          <button class="btn btn--primary" id="download-selected">
+            <svg class="btn__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 15c0 2.828 0 4.243.879 5.121C4.757 21 6.172 21 9 21h6c2.828 0 4.243 0 5.121-.879C21 19.243 21 17.828 21 15"/>
+              <path d="M12 3v13m0 0l4-4.375M12 16l-4-4.375"/>
+            </svg>
+            <span class="btn__text"><span id="tab-count">1</span> file<span id="tab-plural">s</span></span>
+          </button>
+          <button class="btn btn--secondary" id="image-picker-btn" title="Select specific images from page">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="action-area__progress">
+        <div class="progress" id="progress">
+          <div class="progress__bar">
+            <div class="progress__fill" id="progress-fill"></div>
+          </div>
+          <div class="progress__stats">
+            <span class="progress__text" id="progress-text">0 / 0</span>
+            <span class="progress__dupes" id="progress-dupes"></span>
+          </div>
+          <div class="progress__controls">
+            <button class="btn btn--warning" id="pause-btn">Pause</button>
+            <button class="btn btn--danger" id="cancel-btn">Cancel</button>
+          </div>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section__title">Options</div>
+    
+    <div class="option">
+      <span class="option__label">Auto-close tabs</span>
+      <label class="toggle">
+        <input type="checkbox" class="toggle__input" id="close-tabs" checked>
+        <span class="toggle__track">
+          <span class="toggle__thumb"></span>
+        </span>
+      </label>
+    </div>
+    
+    <div class="option">
+      <span class="option__label">Skip dupes</span>
+      <label class="toggle">
+        <input type="checkbox" class="toggle__input" id="skip-duplicates" checked>
+        <span class="toggle__track">
+          <span class="toggle__thumb"></span>
+        </span>
+      </label>
+    </div>
+    
+    <div class="option">
+      <span class="option__label">Interval (sec)</span>
+      <div class="number-input">
+        <input type="number" class="number-input__field" id="interval" value="0.5" min="0.1" max="10" step="0.1">
+        <div class="number-input__btns">
+          <button type="button" class="number-input__btn" id="interval-up">▲</button>
+          <button type="button" class="number-input__btn" id="interval-down">▼</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="input-wrapper">
+      <div class="input-pill" id="prefix-wrapper">
+        <span class="input-label">Filename prefix (optional)</span>
+        <input type="text" class="input-field" id="prefix">
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="section__title">Keyboard Shortcuts</div>
+
+    <div class="shortcut-row">
+      <span class="shortcut-label">Download selected tabs</span>
+      <span class="shortcut-key" title="Configure in browser settings">Alt+Shift+S</span>
+    </div>
+
+    <div class="shortcut-row">
+      <span class="shortcut-label">Download current tab</span>
+      <span class="shortcut-key" title="Configure in browser settings">Alt+Shift+D</span>
+    </div>
+
+    <div class="shortcut-row">
+      <span class="shortcut-label">Download hovered image</span>
+      <div class="shortcut-config">
+        <input type="text" class="shortcut-input" id="shortcut-hover" readonly placeholder="Click to set">
+        <button class="shortcut-clear" id="clear-shortcut-hover" title="Clear">&times;</button>
+      </div>
+    </div>
+
+    <div class="shortcut-row">
+      <span class="shortcut-label">Open image picker</span>
+      <div class="shortcut-config">
+        <input type="text" class="shortcut-input" id="shortcut-picker" readonly placeholder="Click to set">
+        <button class="shortcut-clear" id="clear-shortcut-picker" title="Clear">&times;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Modal -->
+  <div class="modal-overlay" id="video-modal">
+    <div class="modal">
+      <div class="modal__header">
+        <span class="modal__title">Select Videos</span>
+        <button class="modal__close" id="modal-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal__body" id="video-list">
+        <div class="modal__empty">Scanning...</div>
+      </div>
+      <div class="modal__player" id="video-player">
+        <video class="player__video" id="player-video" controls></video>
+      </div>
+      <div class="modal__footer">
+        <span class="modal__selection-info" id="selection-info">0 selected</span>
+        <div class="modal__actions">
+          <button class="btn btn--primary" id="modal-download" disabled>Download</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Modal -->
+  <div class="modal-overlay" id="image-modal">
+    <div class="modal">
+      <div class="modal__header">
+        <span class="modal__title">Select Images</span>
+        <div class="modal__header-actions">
+          <button class="modal__filter-btn active" data-filter="all">All</button>
+          <button class="modal__filter-btn" data-filter="large">Large</button>
+          <button class="modal__filter-btn" data-filter="medium">Med</button>
+        </div>
+        <button class="modal__close" id="image-modal-close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal__toolbar">
+        <button class="modal__select-btn" id="image-select-all">Select All</button>
+        <button class="modal__select-btn" id="image-deselect-all">Deselect All</button>
+        <select class="modal__sort-select" id="image-sort" title="Sort images">
+          <option value="largest">Largest first</option>
+          <option value="smallest">Smallest first</option>
+          <option value="newest">Newest first</option>
+        </select>
+        <span class="modal__image-count" id="image-total-count">0 images</span>
+        <span class="image-live-indicator" id="image-live-indicator" title="Auto-scanning for new images">
+          <span class="image-live-indicator__dot"></span>
+          LIVE
+        </span>
+      </div>
+      <div class="modal__min-size">
+        <span class="modal__min-size-label">Min size</span>
+        <input type="range" class="modal__min-size-slider" id="image-min-size" min="0" max="800" step="25" value="0">
+        <span class="modal__min-size-value" id="image-min-size-value">0 px</span>
+      </div>
+      <div class="modal__body modal__body--grid" id="image-list">
+        <div class="modal__empty">Scanning for images...</div>
+      </div>
+      <div class="image-preview" id="image-preview">
+        <img class="image-preview__img" id="image-preview-img" alt="">
+        <span class="image-preview__info" id="image-preview-info"></span>
+      </div>
+      <div class="modal__footer">
+        <span class="modal__selection-info" id="image-selection-info">0 selected</span>
+        <span class="modal__selection-size" id="image-selection-size"></span>
+        <div class="modal__actions">
+          <button class="btn btn--primary" id="image-modal-download" disabled>Download</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
