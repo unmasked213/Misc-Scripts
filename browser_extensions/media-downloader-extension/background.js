@@ -2237,9 +2237,12 @@ const DownloadManager = {
         }
     },
 
-    async downloadFromSelectedTabs(options = {}) {
+    async downloadFromSelectedTabs(options = {}, tabsOverride = null) {
         try {
-            const tabs = await chrome.tabs.query({ highlighted: true, currentWindow: true });
+            // tabsOverride lets callers (e.g. the "download current tab" keybind)
+            // route through this same proven path while scoping to a specific tab.
+            const tabs = tabsOverride
+                || await chrome.tabs.query({ highlighted: true, currentWindow: true });
 
             debugLog(`Processing ${tabs.length} selected tab(s)`);
 
@@ -2312,12 +2315,10 @@ const DownloadManager = {
                 return { success: false, reason: 'no_tab' };
             }
 
-            const effectiveOptions = {
-                ...options,
-                closeTabs: false
-            };
-
-            return await this.downloadFromTab(tab.id, effectiveOptions);
+            // Route through downloadFromSelectedTabs so the "current tab" path
+            // is identical to clicking the main popup button (full DownloadState
+            // setup, pause/cancel support, batch progress tracking).
+            return await this.downloadFromSelectedTabs(options, [tab]);
 
         } catch (error) {
             debugLog('Error downloading from current tab:', error);
@@ -2700,6 +2701,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Handle keyboard shortcuts
+// Registered at top level so the listener survives service worker restarts.
+// If a shortcut isn't firing, check chrome://extensions/shortcuts — Chrome
+// silently drops `suggested_key` defaults when they conflict with browser
+// or other extension shortcuts (Brave reserves Alt+Shift+S for sidebar).
 chrome.commands.onCommand.addListener(async (command) => {
     debugLog(`Command received: ${command}`);
 
@@ -2708,9 +2713,18 @@ chrome.commands.onCommand.addListener(async (command) => {
     if (command === 'download-selected-tabs') {
         await DownloadManager.downloadFromSelectedTabs(options);
     } else if (command === 'download-current-tab') {
+        // Mirror the popup's main Download button click exactly: same code
+        // path (downloadFromSelectedTabs), just scoped to the active tab so
+        // the user doesn't have to think about what's highlighted.
         await DownloadManager.downloadFromCurrentTab(options);
     }
 });
+
+// Log registered commands on startup so the user can sanity-check bindings
+// from the service worker DevTools console at chrome://extensions.
+chrome.commands.getAll().then(cmds => {
+    debugLog('Registered commands:', cmds.map(c => `${c.name}=${c.shortcut || '(unbound)'}`).join(', '));
+}).catch(() => {});
 
 // Initialize on install/update
 chrome.runtime.onInstalled.addListener(async () => {

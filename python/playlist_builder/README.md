@@ -1,26 +1,41 @@
-# Playlist Builder
+# Playlist Generator
 
-Create .m3u playlists from media files in any folder with flexible sorting options.
+Create fixed `.m3u` playlists from media files in the folder where the script is run.
 
 ---
 
 ## What does it do?
 
-Drop this script into a folder containing media files and run it. It scans the folder (and subfolders) for videos, images, or audio files and creates a plain-text .m3u playlist compatible with MPV, VLC, and most media players.
+Drop `playlist_generator.py` into a folder containing media files and run it. The script scans that folder and all subfolders for one selected media type, sorts the results, and writes one or more `.m3u` playlists in the same folder.
 
-If a playlist already exists, you can refresh its contents or re-sort it without starting from scratch.
+Existing output playlists from previous runs are overwritten. Stale playlist outputs from other modes are removed so the folder only keeps the playlists produced by the current run.
+
+The playlists are plain-text `.m3u` files compatible with MPV, VLC, and most media players.
 
 ---
 
 ## Quick Start
 
-1. Copy `playlist_generator.py` into the folder with your media files
-2. Double-click to run
-3. Choose what to include (videos, images, audio, or all)
-4. Pick a sort order (or none)
-5. A `.m3u` file is saved in the same folder
+1. Copy `playlist_generator.py` into the folder with your media files.
+2. Double-click it or run it with Python.
+3. Choose a file type: videos, images, or audio.
+4. Choose a sort option.
+5. Use the generated `.m3u` playlist file in MPV, VLC, or another compatible player.
 
-Drag the playlist file onto MPV or VLC to play.
+---
+
+## Output Files
+
+Output filenames are fixed.
+
+| File type | Output |
+|-----------|--------|
+| Videos with `ffprobe` | `Horz.m3u` and/or `Vert.m3u`, split by orientation |
+| Videos without `ffprobe` | `Horz.m3u`, containing all matched videos |
+| Images | `Images.m3u` |
+| Audio | `Audio.m3u` |
+
+For videos with `ffprobe`, landscape videos go into `Horz.m3u`, portrait videos go into `Vert.m3u`, and square videos go into both. Unreadable files or files without a video stream are skipped.
 
 ---
 
@@ -28,35 +43,57 @@ Drag the playlist file onto MPV or VLC to play.
 
 | Feature | Description |
 |---------|-------------|
-| **File types** | Videos, images, audio, or all combined |
-| **Sort options** | Name, size, date, duration, bitrate |
-| **ffprobe support** | Uses actual media metadata for duration/bitrate sorting (optional) |
-| **Edit existing** | Detects previous playlists and offers rescan or re-sort |
-| **Recursive scan** | Finds files in all subfolders |
-| **Interactive menus** | Clear prompts with numbered choices |
+| **File types** | Videos, images, or audio |
+| **Recursive scan** | Finds matching files in all subfolders |
+| **Fixed outputs** | Writes predictable filenames and overwrites previous runs |
+| **Stale cleanup** | Removes old playlist outputs not produced by the current run |
+| **Sort options** | Name, size, date modified, duration, or quality |
+| **ffprobe support** | Enables video orientation splitting plus duration and quality metadata |
+| **Fallback behaviour** | Uses file size when `ffprobe` is unavailable for duration or quality sorting |
+| **Interactive menus** | Console prompts with numbered choices |
 
 ---
 
 ## Sorting Options
 
-| Sort | Ascending | Descending |
-|------|-----------|------------|
-| Name | A-Z | Z-A |
-| Size | Smallest first | Largest first |
-| Date | Oldest first | Newest first |
-| Duration | Shortest first | Longest first |
-| Bitrate | Lowest first | Highest first |
+| Sort | Order |
+|------|-------|
+| Name | A-Z |
+| Size | Largest first |
+| Date modified | Newest first |
+| Duration | Longest first |
+| Quality | Highest first |
 
-Duration and bitrate sorting use ffprobe for accurate metadata. If ffprobe isn't available, file size is used as a fallback.
+Duration uses media duration from `ffprobe` when available. Quality uses bitrate per pixel with a codec-efficiency weighting. If the required metadata is unavailable, the script falls back to file size.
+
+---
+
+## ffprobe Behaviour
+
+`ffprobe` is optional. It is part of FFmpeg.
+
+When `ffprobe` is available, the script can:
+
+- split videos by orientation;
+- detect rotated video dimensions correctly;
+- sort by real media duration;
+- calculate quality using bitrate, resolution, and codec.
+
+When `ffprobe` is not available:
+
+- videos are not split by orientation;
+- video output is written to `Horz.m3u`;
+- duration and quality sorting fall back to file size;
+- the script shows an `ffprobe not found` warning in the console.
 
 ---
 
 ## Requirements
 
-- **Python 3.7+**
-- **ffprobe** (optional) - Part of [FFmpeg](https://ffmpeg.org/download.html). Enables accurate duration and bitrate sorting.
+- Python 3.7+
+- `ffprobe` optional, from FFmpeg
 
-No pip packages required.
+No pip packages are required.
 
 ---
 
@@ -64,14 +101,15 @@ No pip packages required.
 
 **Videos:** MP4, MKV, AVI, MOV, WMV, FLV, WebM, M4V, TS, VOB, MPG, MPEG, 3GP, OGV
 
-**Images:** JPG, JPEG, PNG, GIF, BMP, TIFF, WebP, HEIC, HEIF, AVIF, JXL
+**Images:** JPG, JPEG, PNG, GIF, BMP, TIFF, TIF, WebP, HEIC, HEIF, AVIF, JXL
 
 **Audio:** MP3, FLAC, WAV, AAC, OGG, OPUS, M4A, WMA
 
 ---
 
-## Tips
+## Notes
 
-- **No ffprobe?** Duration and bitrate sorting will fall back to file size. The script tells you at the end if ffprobe wasn't available.
-- **Multiple playlists** - Each new playlist gets a timestamped filename, so you can keep several versions.
-- **Edit mode** - When existing playlists are found, you can rescan (update file list) or just re-sort without rescanning.
+- The script only scans from the folder it is placed in.
+- It does not create timestamped playlists.
+- It does not provide an edit or re-sort mode for existing playlists.
+- It does not have an “all media types” mode.
