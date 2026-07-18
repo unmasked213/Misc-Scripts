@@ -16,6 +16,8 @@
 // @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/page_hopper.user.js
 // ==/UserScript==
 
+
+
 (function() {
     'use strict';
 
@@ -75,13 +77,13 @@
             /^next$/i, /^next\s*page$/i, /^›$/, /^»$/, /^>$/, /^?$/, /^?$/,
             /^\s*chevron_right\s*$/i, /^\s*arrow_forward\s*$/i,
             /^siguiente$/i, /^weiter$/i, /^suivant$/i, /^??$/, /^???$/, /^??$/,
-            /^next\s*?$/i, /^?\s*next$/i, /newer/i, /^forward$/i
+            /^next\s*?$/i, /^?\s*next$/i, /^newer$/i, /^forward$/i
         ],
         prev: [
             /^prev(?:ious)?$/i, /^prev(?:ious)?\s*page$/i, /^‹$/, /^«$/, /^<$/, /^?$/, /^?$/,
             /^\s*chevron_left\s*$/i, /^\s*arrow_back\s*$/i,
             /^anterior$/i, /^zurück$/i, /^précédent$/i, /^??$/, /^???$/, /^??$/,
-            /^?\s*prev$/i, /^prev\s*?$/i, /older/i, /^back$/i
+            /^?\s*prev$/i, /^prev\s*?$/i, /^older$/i, /^back$/i
         ],
         numbered: /^\d+$/
     };
@@ -98,7 +100,7 @@
         lastPromptUrl: ''
     };
 
-    const expensiveTextCache = new WeakMap();
+    let expensiveTextCache = new WeakMap();
 
     let feedbackElement = null;
     let feedbackTimeout = null;
@@ -206,6 +208,7 @@
         DetectionCache.dirty = true;
         DetectionCache.candidates = null;
         DetectionCache.groups = null;
+        expensiveTextCache = new WeakMap();
         debugLog('Cache invalidated:', reason);
     }
 
@@ -272,7 +275,7 @@
     }
 
     function isUsableHref(href) {
-        if (!href || href === '#' || href.startsWith('javascript:') || href.startsWith('#')) return false;
+        if (!href || href.startsWith('javascript:') || href.startsWith('#')) return false;
         return true;
     }
 
@@ -426,22 +429,22 @@
         const candidates = { next: [], prev: [], numbered: [], seoNext: [], seoPrev: [] };
         const seen = new WeakSet();
 
-        function add(el, role, confidence, source) {
+        function add(el, role, confidence) {
             if (!el || seen.has(el)) return;
             if (role !== 'seoNext' && role !== 'seoPrev') {
                 if (!isVisible(el)) return;
                 if (!isClickable(el)) return;
             }
             seen.add(el);
-            candidates[role].push({ el, confidence, source });
+            candidates[role].push({ el, confidence });
         }
 
         // SEO <link rel="next/prev"> (fallback only)
         document.querySelectorAll('link[rel="next"]').forEach(el => {
-            if (el?.href) candidates.seoNext.push({ el, confidence: 100, source: 'seo' });
+            if (el?.href) candidates.seoNext.push({ el, confidence: 100 });
         });
         document.querySelectorAll('link[rel="prev"], link[rel="previous"]').forEach(el => {
-            if (el?.href) candidates.seoPrev.push({ el, confidence: 100, source: 'seo' });
+            if (el?.href) candidates.seoPrev.push({ el, confidence: 100 });
         });
 
         const scopes = getPriorityScopes();
@@ -449,34 +452,34 @@
         // Stage 1: cheap signals, scoped
         for (const scope of scopes) {
             // rel on anchors
-            scope.querySelectorAll('a[rel~="next"]').forEach(el => add(el, 'next', 100, 'rel'));
-            scope.querySelectorAll('a[rel~="prev"], a[rel~="previous"]').forEach(el => add(el, 'prev', 100, 'rel'));
+            scope.querySelectorAll('a[rel~="next"]').forEach(el => add(el, 'next', 100));
+            scope.querySelectorAll('a[rel~="prev"], a[rel~="previous"]').forEach(el => add(el, 'prev', 100));
 
             // aria-label on clickables
             scope.querySelectorAll('a[aria-label], button[aria-label], [role="button"][aria-label]').forEach(el => {
                 const label = (el.getAttribute('aria-label') || '').toLowerCase();
                 if (!label) return;
-                if (/\bnext\b/.test(label) && !/\bprev/.test(label)) add(el, 'next', 90, 'aria');
-                else if (/\bprev(ious)?\b/.test(label) && !/\bnext\b/.test(label)) add(el, 'prev', 90, 'aria');
+                if (/\bnext\b/.test(label) && !/\bprev/.test(label)) add(el, 'next', 90);
+                else if (/\bprev(ious)?\b/.test(label) && !/\bnext\b/.test(label)) add(el, 'prev', 90);
             });
 
             // data-page on clickables
             scope.querySelectorAll('a[data-page], button[data-page], [role="button"][data-page]').forEach(el => {
                 const val = (el.getAttribute('data-page') || '').toLowerCase();
-                if (val === 'next') add(el, 'next', 85, 'data');
-                else if (val === 'prev' || val === 'previous') add(el, 'prev', 85, 'data');
+                if (val === 'next') add(el, 'next', 85);
+                else if (val === 'prev' || val === 'previous') add(el, 'prev', 85);
             });
 
             // class tokens on clickables
             scope.querySelectorAll('a[class*="next"], button[class*="next"], [role="button"][class*="next"]').forEach(el => {
                 const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
                 if (cls.includes('prev')) return;
-                add(el, 'next', 70, 'class');
+                add(el, 'next', 70);
             });
             scope.querySelectorAll('a[class*="prev"], button[class*="prev"], [role="button"][class*="prev"]').forEach(el => {
                 const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
                 if (cls.includes('next')) return;
-                add(el, 'prev', 70, 'class');
+                add(el, 'prev', 70);
             });
         }
 
@@ -487,7 +490,7 @@
             scope.querySelectorAll('a[href], button, [role="button"]').forEach(el => {
                 if (seen.has(el) || !isVisible(el) || !isClickable(el)) return;
                 const text = getTextCheap(el);
-                if (TEXT_PATTERNS.numbered.test(text)) add(el, 'numbered', 60, 'text');
+                if (TEXT_PATTERNS.numbered.test(text)) add(el, 'numbered', 60);
             });
         }
 
@@ -520,7 +523,7 @@
                     }
 
                     const role = classifyByText(text);
-                    if (role && role !== 'numbered') add(el, role, 50, 'text');
+                    if (role && role !== 'numbered') add(el, role, 50);
                 }
             }
         }
@@ -782,15 +785,10 @@
             hasNext: group.hasNext,
             hasPrev: group.hasPrev,
             hasNumbered: group.hasNumbered,
-            candidateCount: group.candidates.length,
             container: group.container ? {
                 ...pickStableAttrs(group.container),
                 ancestors: getAncestorSketch(group.container, 3)
-            } : null,
-            candidateSample: group.candidates.slice(0, 3).map(c => ({
-                role: c.role,
-                ...pickStableAttrs(c.el)
-            }))
+            } : null
         };
     }
 
@@ -868,27 +866,15 @@
     // SELECTION UI
     // =========================================================================
 
-    function findNearestContext(el) {
-        if (!el) return null;
-
-        // Check the container itself for aria-label
-        const ownLabel = el.getAttribute?.('aria-label');
-        if (ownLabel) return ownLabel;
-
-        // Walk previous siblings and ancestors looking for headings or labelled landmarks
-        const maxWalk = 12;
+    function findHeadingInSiblings(el, maxSteps) {
+        let sibling = el?.previousElementSibling;
         let walked = 0;
-
-        // Scan backwards through previous siblings first
-        let sibling = el.previousElementSibling;
-        while (sibling && walked < maxWalk) {
+        while (sibling && walked < maxSteps) {
             walked++;
-            // Check if sibling is a heading
             if (/^H[1-6]$/.test(sibling.tagName)) {
                 const text = sibling.textContent?.trim();
                 if (text && text.length <= 80) return text;
             }
-            // Check for heading inside sibling
             const heading = sibling.querySelector('h1, h2, h3, h4, h5, h6');
             if (heading) {
                 const text = heading.textContent?.trim();
@@ -896,32 +882,26 @@
             }
             sibling = sibling.previousElementSibling;
         }
+        return null;
+    }
 
-        // Walk up ancestors, checking each level's previous siblings
+    function findNearestContext(el) {
+        if (!el) return null;
+
+        const ownLabel = el.getAttribute?.('aria-label');
+        if (ownLabel) return ownLabel;
+
+        const directHit = findHeadingInSiblings(el, 12);
+        if (directHit) return directHit;
+
         let ancestor = el.parentElement;
         let level = 0;
         while (ancestor && ancestor !== document.body && level < 5) {
             level++;
-
             const ancestorLabel = ancestor.getAttribute?.('aria-label');
             if (ancestorLabel && ancestorLabel.length <= 80) return ancestorLabel;
-
-            sibling = ancestor.previousElementSibling;
-            walked = 0;
-            while (sibling && walked < 6) {
-                walked++;
-                if (/^H[1-6]$/.test(sibling.tagName)) {
-                    const text = sibling.textContent?.trim();
-                    if (text && text.length <= 80) return text;
-                }
-                const heading = sibling.querySelector('h1, h2, h3, h4, h5, h6');
-                if (heading) {
-                    const text = heading.textContent?.trim();
-                    if (text && text.length <= 80) return text;
-                }
-                sibling = sibling.previousElementSibling;
-            }
-
+            const hit = findHeadingInSiblings(ancestor, 6);
+            if (hit) return hit;
             ancestor = ancestor.parentElement;
         }
 
@@ -934,7 +914,14 @@
         if (document.getElementById('pagehop-highlight-style')) return;
         const style = document.createElement('style');
         style.id = 'pagehop-highlight-style';
-        style.textContent = `[${HIGHLIGHT_ATTR}] { outline: 3px solid rgba(66, 133, 244, 0.9) !important; outline-offset: 2px !important; border-radius: 3px !important; }`;
+        style.textContent = `
+            @keyframes pagehop-pulse {
+                0%, 100% { outline-color: #ff2e92; }
+                50% { outline-color: rgba(255, 46, 146, 0.3); }
+            }
+            [${HIGHLIGHT_ATTR}] { outline-style: solid !important; outline-width: 3px !important; outline-color: #ff2e92; outline-offset: 2px !important; border-radius: 3px !important; animation: pagehop-pulse 1.2s ease-in-out infinite !important; }
+            [${HIGHLIGHT_ATTR}][data-pagehop-elevated] { position: relative !important; z-index: 1000000 !important; }
+        `;
         document.head.appendChild(style);
     }
 
@@ -943,6 +930,10 @@
         for (const c of group.candidates) {
             if (c.el && c.el.nodeType === 1) {
                 c.el.setAttribute(HIGHLIGHT_ATTR, '');
+                const pos = getComputedStyle(c.el).position;
+                if (!pos || pos === 'static') {
+                    c.el.setAttribute('data-pagehop-elevated', '');
+                }
             }
         }
 
@@ -952,7 +943,8 @@
             const rect = first.getBoundingClientRect();
             const inView = rect.top >= 0 && rect.bottom <= window.innerHeight;
             if (!inView) {
-                first.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                const targetY = window.scrollY + rect.top - (window.innerHeight * 0.25);
+                window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
             }
         }
     }
@@ -961,6 +953,7 @@
         const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`);
         for (const el of highlighted) {
             el.removeAttribute(HIGHLIGHT_ATTR);
+            el.removeAttribute('data-pagehop-elevated');
         }
     }
 
@@ -975,8 +968,7 @@
         if (context) {
             parts.push(`near '${context}'`);
         } else if (group.container) {
-            const desc = group.container.getAttribute('aria-label') ||
-                         extractStableClasses(group.container)[0] ||
+            const desc = extractStableClasses(group.container)[0] ||
                          group.container.tagName.toLowerCase();
             parts.push(`in ${desc}`);
         } else {
@@ -991,38 +983,87 @@
         overlay.id = 'pagehop-selector';
         overlay.innerHTML = `
             <style>
+                #pagehop-selector, #pagehop-selector *, #pagehop-selector *::before, #pagehop-selector *::after {
+                    box-sizing: border-box; margin: 0; padding: 0;
+                }
                 #pagehop-selector {
+                    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+                    --rs: 8px; --rm: 12px; --rl: 18px;
+                    --fs: 14px; --fxs: 11px;
+                    --wm: 400; --wl: 500;
+                    --fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+                    --surface: rgb(11, 14, 23);
+                    --e1: rgb(28, 31, 41);
+                    --e2: rgb(40, 43, 54);
+                    --e3: rgb(56, 60, 72);
+                    --text: rgb(228, 228, 242);
+                    --mute: rgb(145, 147, 159);
+                    --strong: rgb(240, 240, 252);
+                    --accent: rgb(30, 171, 208);
+                    --bl: rgba(228, 228, 242, 0.10);
+                    --bm: rgba(228, 228, 242, 0.22);
+                    --shadow: 0 4px 12px rgba(0, 0, 0, 0.78);
+
                     position: fixed; inset: 0;
-                    background: rgba(0,0,0,0.7);
+                    background: rgba(0, 0, 0, 0.6);
                     display: flex; align-items: center; justify-content: center;
                     z-index: 999999;
-                    font-family: system-ui, -apple-system, sans-serif;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    line-height: 1.4;
                 }
-                #pagehop-selector .panel {
-                    background: #1a1a1a; border: 1px solid #333;
-                    border-radius: 8px; padding: 16px;
-                    max-width: 420px; color: #e0e0e0;
+                #pagehop-selector .ph-panel {
+                    background: var(--surface); border: 1px solid var(--bl);
+                    border-radius: var(--rl); box-shadow: var(--shadow);
+                    padding: var(--s4); display: flex; flex-direction: column;
+                    gap: var(--s3); width: 320px; color: var(--text);
                 }
-                #pagehop-selector h3 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
-                #pagehop-selector .option {
-                    padding: 8px 12px; margin: 4px 0;
-                    background: #2a2a2a; border: 1px solid #404040;
-                    border-radius: 4px; cursor: pointer; font-size: 13px;
+                #pagehop-selector .ph-title {
+                    font-size: var(--fs); font-weight: var(--wl); color: var(--strong);
+                    padding: 0 var(--s1);
                 }
-                #pagehop-selector .option:hover { background: #333; border-color: #505050; }
-                #pagehop-selector .label { font-weight: 500; }
-                #pagehop-selector .hint { font-size: 11px; color: #888; margin-top: 2px; }
-                #pagehop-selector .footer {
-                    margin-top: 12px; font-size: 11px; color: #666;
-                    display: flex; justify-content: space-between;
+                #pagehop-selector .ph-options {
+                    display: flex; flex-direction: column; gap: var(--s1);
+                    max-height: calc((44px * 4) + (var(--s1) * 3));
+                    overflow-y: auto;
+                }
+                #pagehop-selector .ph-options::-webkit-scrollbar { width: 4px; }
+                #pagehop-selector .ph-options::-webkit-scrollbar-track { background: transparent; }
+                #pagehop-selector .ph-options::-webkit-scrollbar-thumb {
+                    background: var(--e3); border-radius: 2px;
+                }
+                #pagehop-selector .ph-option {
+                    display: flex; align-items: center; min-height: 44px;
+                    padding: var(--s2) var(--s3);
+                    background: var(--e1); border: 1px solid var(--bl);
+                    border-radius: var(--rs); cursor: pointer;
+                    transition: all var(--fast); flex-shrink: 0;
+                }
+                #pagehop-selector .ph-option:hover {
+                    background: var(--e2); border-color: var(--bm);
+                }
+                #pagehop-selector .ph-option:active { transform: scale(0.97); }
+                #pagehop-selector .ph-option-key {
+                    font-size: var(--fxs); font-weight: var(--wl); color: var(--accent);
+                    width: 20px; flex-shrink: 0;
+                }
+                #pagehop-selector .ph-option-label {
+                    font-size: var(--fs); font-weight: var(--wm); color: var(--text);
+                    letter-spacing: 0.3px;
+                }
+                #pagehop-selector .ph-footer {
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding: 0 var(--s1);
+                }
+                #pagehop-selector .ph-hint {
+                    font-size: var(--fxs); font-weight: var(--wm); color: var(--mute);
+                    letter-spacing: 0.3px;
                 }
             </style>
-            <div class="panel">
-                <h3>Multiple pagination controls found</h3>
-                <div class="options"></div>
-                <div class="footer">
-                    <span>Press 1-9 to select, Esc to cancel</span>
-                    <span>${window.location.hostname}</span>
+            <div class="ph-panel">
+                <div class="ph-title">Multiple pagination controls</div>
+                <div class="ph-options"></div>
+                <div class="ph-footer">
+                    <span class="ph-hint">1-9 select · Esc cancel · Hover to preview</span>
                 </div>
             </div>
         `;
@@ -1033,13 +1074,13 @@
             document.removeEventListener('keydown', handleKey, true);
         };
 
-        const container = overlay.querySelector('.options');
+        const container = overlay.querySelector('.ph-options');
         options.forEach((opt, idx) => {
             const div = document.createElement('div');
-            div.className = 'option';
+            div.className = 'ph-option';
             div.innerHTML = `
-                <div class="label">${idx + 1}. ${describeGroup(opt.group)}</div>
-                <div class="hint">Hover to highlight on page</div>
+                <span class="ph-option-key">${idx + 1}</span>
+                <span class="ph-option-label">${describeGroup(opt.group)}</span>
             `;
             div.addEventListener('mouseenter', () => {
                 unhighlightAll();
@@ -1086,18 +1127,20 @@
             feedbackElement.id = 'pagehop-indicator';
             feedbackElement.style.cssText = `
                 position: fixed; bottom: 20px; right: 20px;
-                padding: 8px 12px; border-radius: 6px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                font-size: 13px; font-family: system-ui, -apple-system, sans-serif;
-                z-index: 999999; transition: opacity 0.2s ease;
-                pointer-events: none; backdrop-filter: blur(4px);
+                padding: 8px 16px; border-radius: 12px;
+                border: 1px solid rgba(228, 228, 242, 0.10);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.78);
+                font-size: 14px; font-weight: 500; letter-spacing: 0.3px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                z-index: 999999; transition: opacity 240ms cubic-bezier(0.2, 0, 0.2, 1);
+                pointer-events: none; background: rgb(11, 14, 23);
+                color: rgb(228, 228, 242);
             `;
             document.body.appendChild(feedbackElement);
         }
 
         feedbackElement.textContent = message;
-        feedbackElement.style.backgroundColor = success ? 'rgba(33, 150, 83, 0.92)' : 'rgba(209, 87, 87, 0.92)';
-        feedbackElement.style.color = '#FFF';
+        feedbackElement.style.borderColor = success ? 'rgba(0, 162, 103, 0.5)' : 'rgba(255, 113, 100, 0.5)';
         feedbackElement.style.opacity = '1';
 
         feedbackTimeout = setTimeout(() => {
@@ -1133,8 +1176,6 @@
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             await new Promise(r => setTimeout(r, 250));
         }
-
-        showFeedback('Loading...', true);
 
         try { el.click(); }
         catch { showFeedback('Click failed', false); return false; }
@@ -1216,7 +1257,7 @@
                 leadingZeros: digitStr.length - num.toString().length,
                 score: p.score,
                 matchedString: m[0],
-                matchPosition: url.indexOf(m[0]),
+                matchPosition: m.index,
                 digitPosition: m[0].indexOf(digitStr),
                 digitStr
             });
@@ -1450,14 +1491,17 @@
         return true;
     }
 
-    function resolveAction(event) {
-        const entries = Object.entries(Config.bindings);
-        entries.sort((a, b) => {
+    let sortedBindings = null;
+
+    function buildSortedBindings() {
+        sortedBindings = Object.entries(Config.bindings).sort((a, b) => {
             const countMods = x => (x.ctrl ? 1 : 0) + (x.shift ? 1 : 0) + (x.alt ? 1 : 0) + (x.meta ? 1 : 0);
             return countMods(b[1]) - countMods(a[1]);
         });
+    }
 
-        for (const [action, binding] of entries) {
+    function resolveAction(event) {
+        for (const [action, binding] of sortedBindings) {
             if (eventMatchesBinding(event, binding)) return action;
         }
         return null;
@@ -1528,14 +1572,14 @@
 
     function init() {
         loadConfig();
+        buildSortedBindings();
         DetectionCache.url = window.location.href;
         installUrlChangeHooks();
         installMutationObserver();
         registerMenuCommands();
+        document.addEventListener('keydown', handleKeyDown, { capture: true });
         debugLog('Page Hopper v9.2.0 initialized');
     }
-
-    document.addEventListener('keydown', handleKeyDown, { capture: true });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init, { once: true });
