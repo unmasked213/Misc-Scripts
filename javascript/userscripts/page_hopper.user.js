@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Page Hopper
+// @name         Page Hopper WIP
 // @namespace    https://github.com/unmasked213/Misc-Scripts
 // @version      9.2.0
 // @description  Keyboard-driven pagination navigation with scoped DOM detection, ancestry grouping, caching, and URL fallback. Prefers component-level pagination when present.
 // @author       Unmasked213
 // @match        *://*/*
-// @exclude      *://chatgpt.com/*
-// @exclude      *://mail.google.com/*
-// @exclude      *://docs.google.com/*
+// @exclude      file:///*
+// @exclude      /^https?:\/\/(?:localhost|127\.|192\.168\.|(?:[^./]+\.)+(?:local|home\.arpa))(?::\d+)?\//
+// @exclude      /^https?:\/\/(?:(?:[^./]+\.)*(?:ui\.nabu\.casa|proton\.me|protonmail\.(?:com|ch)|pm\.me|chatgpt\.com|claude\.ai)|chat\.openai\.com)(?::\d+)?\//
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
@@ -15,7 +15,6 @@
 // @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/page_hopper.user.js
 // @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/page_hopper.user.js
 // ==/UserScript==
-
 
 
 (function() {
@@ -77,13 +76,13 @@
             /^next$/i, /^next\s*page$/i, /^›$/, /^»$/, /^>$/, /^?$/, /^?$/,
             /^\s*chevron_right\s*$/i, /^\s*arrow_forward\s*$/i,
             /^siguiente$/i, /^weiter$/i, /^suivant$/i, /^??$/, /^???$/, /^??$/,
-            /^next\s*?$/i, /^?\s*next$/i, /^newer$/i, /^forward$/i
+            /^next\s*?$/i, /^?\s*next$/i, /newer/i, /^forward$/i
         ],
         prev: [
             /^prev(?:ious)?$/i, /^prev(?:ious)?\s*page$/i, /^‹$/, /^«$/, /^<$/, /^?$/, /^?$/,
             /^\s*chevron_left\s*$/i, /^\s*arrow_back\s*$/i,
             /^anterior$/i, /^zurück$/i, /^précédent$/i, /^??$/, /^???$/, /^??$/,
-            /^?\s*prev$/i, /^prev\s*?$/i, /^older$/i, /^back$/i
+            /^?\s*prev$/i, /^prev\s*?$/i, /older/i, /^back$/i
         ],
         numbered: /^\d+$/
     };
@@ -100,7 +99,7 @@
         lastPromptUrl: ''
     };
 
-    let expensiveTextCache = new WeakMap();
+    const expensiveTextCache = new WeakMap();
 
     let feedbackElement = null;
     let feedbackTimeout = null;
@@ -208,7 +207,6 @@
         DetectionCache.dirty = true;
         DetectionCache.candidates = null;
         DetectionCache.groups = null;
-        expensiveTextCache = new WeakMap();
         debugLog('Cache invalidated:', reason);
     }
 
@@ -275,7 +273,7 @@
     }
 
     function isUsableHref(href) {
-        if (!href || href.startsWith('javascript:') || href.startsWith('#')) return false;
+        if (!href || href === '#' || href.startsWith('javascript:') || href.startsWith('#')) return false;
         return true;
     }
 
@@ -429,22 +427,22 @@
         const candidates = { next: [], prev: [], numbered: [], seoNext: [], seoPrev: [] };
         const seen = new WeakSet();
 
-        function add(el, role, confidence) {
+        function add(el, role, confidence, source) {
             if (!el || seen.has(el)) return;
             if (role !== 'seoNext' && role !== 'seoPrev') {
                 if (!isVisible(el)) return;
                 if (!isClickable(el)) return;
             }
             seen.add(el);
-            candidates[role].push({ el, confidence });
+            candidates[role].push({ el, confidence, source });
         }
 
         // SEO <link rel="next/prev"> (fallback only)
         document.querySelectorAll('link[rel="next"]').forEach(el => {
-            if (el?.href) candidates.seoNext.push({ el, confidence: 100 });
+            if (el?.href) candidates.seoNext.push({ el, confidence: 100, source: 'seo' });
         });
         document.querySelectorAll('link[rel="prev"], link[rel="previous"]').forEach(el => {
-            if (el?.href) candidates.seoPrev.push({ el, confidence: 100 });
+            if (el?.href) candidates.seoPrev.push({ el, confidence: 100, source: 'seo' });
         });
 
         const scopes = getPriorityScopes();
@@ -452,34 +450,34 @@
         // Stage 1: cheap signals, scoped
         for (const scope of scopes) {
             // rel on anchors
-            scope.querySelectorAll('a[rel~="next"]').forEach(el => add(el, 'next', 100));
-            scope.querySelectorAll('a[rel~="prev"], a[rel~="previous"]').forEach(el => add(el, 'prev', 100));
+            scope.querySelectorAll('a[rel~="next"]').forEach(el => add(el, 'next', 100, 'rel'));
+            scope.querySelectorAll('a[rel~="prev"], a[rel~="previous"]').forEach(el => add(el, 'prev', 100, 'rel'));
 
             // aria-label on clickables
             scope.querySelectorAll('a[aria-label], button[aria-label], [role="button"][aria-label]').forEach(el => {
                 const label = (el.getAttribute('aria-label') || '').toLowerCase();
                 if (!label) return;
-                if (/\bnext\b/.test(label) && !/\bprev/.test(label)) add(el, 'next', 90);
-                else if (/\bprev(ious)?\b/.test(label) && !/\bnext\b/.test(label)) add(el, 'prev', 90);
+                if (/\bnext\b/.test(label) && !/\bprev/.test(label)) add(el, 'next', 90, 'aria');
+                else if (/\bprev(ious)?\b/.test(label) && !/\bnext\b/.test(label)) add(el, 'prev', 90, 'aria');
             });
 
             // data-page on clickables
             scope.querySelectorAll('a[data-page], button[data-page], [role="button"][data-page]').forEach(el => {
                 const val = (el.getAttribute('data-page') || '').toLowerCase();
-                if (val === 'next') add(el, 'next', 85);
-                else if (val === 'prev' || val === 'previous') add(el, 'prev', 85);
+                if (val === 'next') add(el, 'next', 85, 'data');
+                else if (val === 'prev' || val === 'previous') add(el, 'prev', 85, 'data');
             });
 
             // class tokens on clickables
             scope.querySelectorAll('a[class*="next"], button[class*="next"], [role="button"][class*="next"]').forEach(el => {
                 const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
                 if (cls.includes('prev')) return;
-                add(el, 'next', 70);
+                add(el, 'next', 70, 'class');
             });
             scope.querySelectorAll('a[class*="prev"], button[class*="prev"], [role="button"][class*="prev"]').forEach(el => {
                 const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
                 if (cls.includes('next')) return;
-                add(el, 'prev', 70);
+                add(el, 'prev', 70, 'class');
             });
         }
 
@@ -490,7 +488,7 @@
             scope.querySelectorAll('a[href], button, [role="button"]').forEach(el => {
                 if (seen.has(el) || !isVisible(el) || !isClickable(el)) return;
                 const text = getTextCheap(el);
-                if (TEXT_PATTERNS.numbered.test(text)) add(el, 'numbered', 60);
+                if (TEXT_PATTERNS.numbered.test(text)) add(el, 'numbered', 60, 'text');
             });
         }
 
@@ -523,7 +521,7 @@
                     }
 
                     const role = classifyByText(text);
-                    if (role && role !== 'numbered') add(el, role, 50);
+                    if (role && role !== 'numbered') add(el, role, 50, 'text');
                 }
             }
         }
@@ -785,10 +783,15 @@
             hasNext: group.hasNext,
             hasPrev: group.hasPrev,
             hasNumbered: group.hasNumbered,
+            candidateCount: group.candidates.length,
             container: group.container ? {
                 ...pickStableAttrs(group.container),
                 ancestors: getAncestorSketch(group.container, 3)
-            } : null
+            } : null,
+            candidateSample: group.candidates.slice(0, 3).map(c => ({
+                role: c.role,
+                ...pickStableAttrs(c.el)
+            }))
         };
     }
 
@@ -832,7 +835,7 @@
                 score += 15;
             }
 
-            if (score >= 45) return group;
+            if (score >= 35) return group;
         }
         return null;
     }
@@ -866,15 +869,27 @@
     // SELECTION UI
     // =========================================================================
 
-    function findHeadingInSiblings(el, maxSteps) {
-        let sibling = el?.previousElementSibling;
+    function findNearestContext(el) {
+        if (!el) return null;
+
+        // Check the container itself for aria-label
+        const ownLabel = el.getAttribute?.('aria-label');
+        if (ownLabel) return ownLabel;
+
+        // Walk previous siblings and ancestors looking for headings or labelled landmarks
+        const maxWalk = 12;
         let walked = 0;
-        while (sibling && walked < maxSteps) {
+
+        // Scan backwards through previous siblings first
+        let sibling = el.previousElementSibling;
+        while (sibling && walked < maxWalk) {
             walked++;
+            // Check if sibling is a heading
             if (/^H[1-6]$/.test(sibling.tagName)) {
                 const text = sibling.textContent?.trim();
                 if (text && text.length <= 80) return text;
             }
+            // Check for heading inside sibling
             const heading = sibling.querySelector('h1, h2, h3, h4, h5, h6');
             if (heading) {
                 const text = heading.textContent?.trim();
@@ -882,26 +897,32 @@
             }
             sibling = sibling.previousElementSibling;
         }
-        return null;
-    }
 
-    function findNearestContext(el) {
-        if (!el) return null;
-
-        const ownLabel = el.getAttribute?.('aria-label');
-        if (ownLabel) return ownLabel;
-
-        const directHit = findHeadingInSiblings(el, 12);
-        if (directHit) return directHit;
-
+        // Walk up ancestors, checking each level's previous siblings
         let ancestor = el.parentElement;
         let level = 0;
         while (ancestor && ancestor !== document.body && level < 5) {
             level++;
+
             const ancestorLabel = ancestor.getAttribute?.('aria-label');
             if (ancestorLabel && ancestorLabel.length <= 80) return ancestorLabel;
-            const hit = findHeadingInSiblings(ancestor, 6);
-            if (hit) return hit;
+
+            sibling = ancestor.previousElementSibling;
+            walked = 0;
+            while (sibling && walked < 6) {
+                walked++;
+                if (/^H[1-6]$/.test(sibling.tagName)) {
+                    const text = sibling.textContent?.trim();
+                    if (text && text.length <= 80) return text;
+                }
+                const heading = sibling.querySelector('h1, h2, h3, h4, h5, h6');
+                if (heading) {
+                    const text = heading.textContent?.trim();
+                    if (text && text.length <= 80) return text;
+                }
+                sibling = sibling.previousElementSibling;
+            }
+
             ancestor = ancestor.parentElement;
         }
 
@@ -919,8 +940,7 @@
                 0%, 100% { outline-color: #ff2e92; }
                 50% { outline-color: rgba(255, 46, 146, 0.3); }
             }
-            [${HIGHLIGHT_ATTR}] { outline-style: solid !important; outline-width: 3px !important; outline-color: #ff2e92; outline-offset: 2px !important; border-radius: 3px !important; animation: pagehop-pulse 1.2s ease-in-out infinite !important; }
-            [${HIGHLIGHT_ATTR}][data-pagehop-elevated] { position: relative !important; z-index: 1000000 !important; }
+            [${HIGHLIGHT_ATTR}] { outline-style: solid !important; outline-width: 3px !important; outline-color: #ff2e92; outline-offset: 2px !important; border-radius: 3px !important; position: relative !important; z-index: 1000000 !important; animation: pagehop-pulse 1.2s ease-in-out infinite !important; }
         `;
         document.head.appendChild(style);
     }
@@ -930,10 +950,6 @@
         for (const c of group.candidates) {
             if (c.el && c.el.nodeType === 1) {
                 c.el.setAttribute(HIGHLIGHT_ATTR, '');
-                const pos = getComputedStyle(c.el).position;
-                if (!pos || pos === 'static') {
-                    c.el.setAttribute('data-pagehop-elevated', '');
-                }
             }
         }
 
@@ -953,7 +969,6 @@
         const highlighted = document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`);
         for (const el of highlighted) {
             el.removeAttribute(HIGHLIGHT_ATTR);
-            el.removeAttribute('data-pagehop-elevated');
         }
     }
 
@@ -968,7 +983,8 @@
         if (context) {
             parts.push(`near '${context}'`);
         } else if (group.container) {
-            const desc = extractStableClasses(group.container)[0] ||
+            const desc = group.container.getAttribute('aria-label') ||
+                         extractStableClasses(group.container)[0] ||
                          group.container.tagName.toLowerCase();
             parts.push(`in ${desc}`);
         } else {
@@ -1177,6 +1193,8 @@
             await new Promise(r => setTimeout(r, 250));
         }
 
+        showFeedback('Loading...', true);
+
         try { el.click(); }
         catch { showFeedback('Click failed', false); return false; }
 
@@ -1257,7 +1275,7 @@
                 leadingZeros: digitStr.length - num.toString().length,
                 score: p.score,
                 matchedString: m[0],
-                matchPosition: m.index,
+                matchPosition: url.indexOf(m[0]),
                 digitPosition: m[0].indexOf(digitStr),
                 digitStr
             });
@@ -1491,17 +1509,14 @@
         return true;
     }
 
-    let sortedBindings = null;
-
-    function buildSortedBindings() {
-        sortedBindings = Object.entries(Config.bindings).sort((a, b) => {
+    function resolveAction(event) {
+        const entries = Object.entries(Config.bindings);
+        entries.sort((a, b) => {
             const countMods = x => (x.ctrl ? 1 : 0) + (x.shift ? 1 : 0) + (x.alt ? 1 : 0) + (x.meta ? 1 : 0);
             return countMods(b[1]) - countMods(a[1]);
         });
-    }
 
-    function resolveAction(event) {
-        for (const [action, binding] of sortedBindings) {
+        for (const [action, binding] of entries) {
             if (eventMatchesBinding(event, binding)) return action;
         }
         return null;
@@ -1572,14 +1587,14 @@
 
     function init() {
         loadConfig();
-        buildSortedBindings();
         DetectionCache.url = window.location.href;
         installUrlChangeHooks();
         installMutationObserver();
         registerMenuCommands();
-        document.addEventListener('keydown', handleKeyDown, { capture: true });
         debugLog('Page Hopper v9.2.0 initialized');
     }
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init, { once: true });
