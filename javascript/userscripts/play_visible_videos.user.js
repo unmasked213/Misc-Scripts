@@ -2,7 +2,7 @@
 // @name         Play Visible Videos
 // @namespace    https://github.com/unmasked213/Misc-Scripts
 // @author       Unmasked213
-// @version      1.6.0
+// @version      1.6.2
 // @description  Toggle button auto-plays/pauses videos as they enter/leave view. Per-video download buttons on hover with duplicate prevention. Button immune to browser and pinch zoom.
 // @match        *://*/*
 // @noframes
@@ -14,11 +14,10 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @connect      *
 // @updateURL    https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/play_visible_videos.user.js
 // @downloadURL  https://raw.githubusercontent.com/unmasked213/Misc-Scripts/main/javascript/violentmonkey_userscripts/play_visible_videos.user.js
+// @connect      *
 // ==/UserScript==
-
 
 // EDIT the @match line above to restrict this to your target site(s). Runs on
 // http(s) pages only; localhost, private-range IPs (10/172.16-31/192.168) and
@@ -43,19 +42,18 @@
 //
 // Downloads: hover any light-DOM video for a download button. Only genuine user
 // clicks act (synthetic page-dispatched clicks are ignored), since a download can
-// reach any host. HTTP(S) media goes through GM_download first (browser-managed:
-// survives tab close/refresh, streams to disk, pause/resume via the browser's own
-// downloads UI). The URL is recorded as downloaded optimistically at start so
-// duplicate prevention survives closing the tab mid-transfer; it is rolled back if
-// failure is seen before the page dies. Pink ring = native, safe to close the tab.
-// If native fails (e.g. referer-gated CDNs), it falls back to an in-page chunked
+// reach any host. By default HTTP(S) media uses an in-page chunked
 // GM_xmlhttpRequest engine: amber ring, click to pause/resume, buffered in memory
 // (so capped at 2 GiB), transient chunk errors (network/timeout/429/5xx) retried
-// once, keep the tab open. The downloaded-URL ledger is userscript-global
-// (GM storage) so dedup spans sites and the page cannot read or clear it.
-// Ordinary blob: and data: sources are supported; MediaSource/MSE blob URLs and
-// .m3u8 / .mpd manifests are not complete files.
-
+// once, and it dies if the tab closes. Set PREFER_NATIVE = true (below) to use
+// browser-managed GM_download instead: pink ring, survives tab close/refresh,
+// streams to disk, pause via the browser's own downloads UI, URL recorded as
+// downloaded optimistically at start (rolled back if failure is seen while the
+// page lives), falling back to the in-page engine on error. Native requires the
+// manager's download mode set to Browser API / native downloads. The
+// downloaded-URL ledger is userscript-global (GM storage) so dedup spans sites and
+// the page cannot read or clear it. Ordinary blob: and data: sources are
+// supported; MediaSource/MSE blob URLs and .m3u8 / .mpd manifests are not files.
 
 (function () {
   'use strict';
@@ -67,6 +65,14 @@
   var MARGIN = 16;
   var refDPR = window.devicePixelRatio || 1;
   var enabled = false;
+
+  // Download path. false = in-page engine (works everywhere GM_xmlhttpRequest
+  // does; pausable via the ring; buffers in memory; dies with the tab). true =
+  // browser-managed GM_download (survives tab close/refresh, streams to disk,
+  // pause via the browser's own downloads UI) - REQUIRES the userscript manager's
+  // download mode set to "Browser API" (Tampermonkey) / native downloads
+  // (Violentmonkey). If native silently produces nothing, leave this false.
+  var PREFER_NATIVE = false;
 
   // --- styles (foreign page: inline injection with !important is required) ---
   var style = document.createElement('style');
@@ -626,6 +632,12 @@
   // disk and are not subject to this.
   var MAX_INPAGE_BYTES = 2 * 1024 * 1024 * 1024;
 
+  function formatBytes(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + 'M';
+    if (n >= 1024) return Math.round(n / 1024) + 'K';
+    return (n || 0) + 'B';
+  }
+
   function updateChunkProgress(fab, chunkLoaded) {
     if (!fab._vvpActive || fab._vvpPaused || !fab._vvpPercent) return;
 
@@ -633,7 +645,10 @@
     var loaded = fab._vvpOffset + (Number(chunkLoaded) || 0);
 
     if (!total) {
-      fab._vvpPercent.textContent = '\u2026';
+      // No Content-Range from the server: show downloaded size so a live
+      // transfer is visibly distinct from a stalled one.
+      fab.style.setProperty('--vvp-prog', '0%');
+      fab._vvpPercent.textContent = formatBytes(loaded);
       return;
     }
 
@@ -896,7 +911,8 @@
     }
   }
 
-  // In-page fallback engine: pausable, but dies with the tab.
+  // In-page engine: default path and native's fallback. Pausable, buffered in
+  // memory, dies with the tab.
   function streamDownload(url, video, fab) {
     if (typeof GM_xmlhttpRequest !== 'function') {
       fail(
@@ -1039,6 +1055,19 @@
   }
 
   function localDownload(url, video, fab) {
+    var settled = false;
+
+    var guard = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      fail(
+        fab,
+        url,
+        'Blob did not resolve to a file; it is likely a MediaSource stream.',
+        null
+      );
+    }, 15000);
+
     fetch(url)
       .then(function (response) {
         if (!response.ok) {
@@ -1048,8 +1077,13 @@
         return response.blob();
       })
       .then(function (blob) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(guard);
+
         if (!blob.size) {
-          throw new Error('Empty media blob');
+          fail(fab, url, 'Blob source is empty or not a downloadable file.', null);
+          return;
         }
 
         saveBlob(
@@ -1060,6 +1094,10 @@
         complete(fab, url);
       })
       .catch(function (error) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(guard);
+
         fail(
           fab,
           url,
@@ -1097,7 +1135,8 @@
     fab._vvpUrl = url;
 
     if (isHttp(url)) {
-      nativeDownload(url, video, fab);
+      if (PREFER_NATIVE) nativeDownload(url, video, fab);
+      else streamDownload(url, video, fab);
     } else if (isLocalUrl(url)) {
       fab._vvpPausable = false;
       setDownloading(fab, true);
