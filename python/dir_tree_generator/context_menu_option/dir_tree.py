@@ -11,9 +11,14 @@ Features
   - Boxed header with folder name, path, scan timestamp, elapsed time,
     and summary totals. Same totals repeated in footer.
   - Sorts directories first, then files, case-insensitive.
-  - Skips hidden files/folders (dotfiles), symlinks, and common noise
-    directories (node_modules, __pycache__, .git, etc.).
-  - Self-excludes its own .py file and previous _dir_tree.md output.
+  - Never omits anything silently. Heavy directories (node_modules, .git,
+    virtualenvs, tool caches) are listed but not descended into, tagged with
+    their direct entry count. Symlinked and ignore-matched directories are
+    listed the same way rather than disappearing.
+  - Hidden entries are included by default. --no-hidden suppresses them and
+    reports the per-directory count instead of dropping them silently.
+  - Self-excludes only its own file and the output file it is about to
+    write, matched by path rather than by name.
   - Configurable max depth (default unlimited).
   - Discovers .*ignore files (e.g. .gitignore, .cursorignore) and excludes
     matching paths. Requires pathspec (pip install pathspec). Use --no-ignore
@@ -32,7 +37,7 @@ Output
 
 Usage
   Double-click to scan the folder it lives in, or:
-    python dir_tree.py --path "X:/Projects" --depth 4 --hidden --no-ignore
+    python dir_tree.py --path "X:/Projects" --depth 4 --expand --no-ignore
     pythonw dir_tree.py --clipboard --path "X:/Projects"
 """
 from __future__ import annotations
@@ -81,17 +86,23 @@ FOLDER    = "\U0001f4c1"  # folder emoji
 # Configuration
 # ---------------------------------------------------------------------------
 
-DEFAULT_EXCLUDED: frozenset[str] = frozenset({
-    "node_modules", "__pycache__", ".git", ".svn", ".hg",
+# Directories that are listed but not descended into. Nothing here is
+# dropped: a collapsed directory still appears in the tree, tagged with its
+# reason and direct entry count. Only genuinely unbounded trees belong here -
+# anything small enough to read is structure, not noise.
+DEFAULT_COLLAPSED: frozenset[str] = frozenset({
+    "node_modules", ".git", ".svn", ".hg",
     ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache",
-    ".ruff_cache", ".idea", ".vscode", "dist", "build",
-    ".DS_Store", "Thumbs.db",
+    ".ruff_cache",
 })
 
 TRUNCATE_THRESHOLD = 50
 BREATHE_MAX_DEPTH  = 99
 BREATHE_MIN_DIRS   = 0
-SCRIPT_NAME        = Path(__file__).name
+try:
+    SCRIPT_PATH    = Path(__file__).resolve()
+except OSError:
+    SCRIPT_PATH    = Path(__file__)
 IGNORE_RE          = re.compile(r"^\..+ignore$")
 
 ProgressFn = Callable[[int, str], None]
@@ -106,24 +117,52 @@ TruncateFn = Callable[[Path, int], bool]
 class Config:
     target: Path
     max_depth: int = 0
-    show_hidden: bool = False
+    show_hidden: bool = True
     use_ignore: bool = True
-    excluded: frozenset[str] = DEFAULT_EXCLUDED
+    collapsed: frozenset[str] = DEFAULT_COLLAPSED
     clipboard: bool = False
+    output_name: str = ""
 
-    def is_excluded(self, name: str) -> bool:
-        return (
-            name in self.excluded
-            or name == SCRIPT_NAME
-            or name.endswith("_dir_tree.md")
-            or (not self.show_hidden and name.startswith("."))
-        )
+    def is_collapsed(self, name: str) -> bool:
+        return name in self.collapsed
+
+    def is_own_artefact(self, entry: Path) -> bool:
+        """This script and the file this run is about to write - root only."""
+        if self.output_name and entry.name == self.output_name:
+            return True
+        if entry.name != SCRIPT_PATH.name:
+            return False
+        try:
+            return entry.resolve() == SCRIPT_PATH
+        except OSError:
+            return False
 
 
 @dataclass(frozen=True)
 class FileNode:
     name: str
     size: int = 0
+
+
+@dataclass(frozen=True)
+class SkipNote:
+    """Rendered as a trailing pseudo-child summarising unlisted files."""
+    hidden: int = 0
+    ignored: int = 0
+
+    @property
+    def count(self) -> int:
+        return self.hidden + self.ignored
+
+    def label(self) -> str:
+        unit = "file" if self.count == 1 else "files"
+        if self.hidden and self.ignored:
+            why = "hidden or ignored"
+        elif self.hidden:
+            why = "hidden"
+        else:
+            why = "ignore-matched"
+        return f"[{self.count} {unit} {why}]"
 
 
 @dataclass
@@ -134,6 +173,10 @@ class DirNode:
     files: list[FileNode] = field(default_factory=list)
     error: str = ""
     truncated_count: int = 0
+    note: str = ""           # why this directory was not descended into
+    entry_count: int = -1    # direct entries inside a collapsed directory
+    hidden_files: int = 0    # files suppressed by --no-hidden
+    ignored_files: int = 0   # files matched by an ignore rule
 
     @property
     def direct_file_bytes(self) -> int:
@@ -154,6 +197,9 @@ class Stats:
     files: int = 0
     total_bytes: int = 0
     dirs_scanned: int = 0
+    collapsed: int = 0
+    skipped_files: int = 0
+
 
 
 class IgnoreFilter:
@@ -238,6 +284,49 @@ def _stat_file(path: Path) -> int:
         return path.stat(follow_symlinks=False).st_size
     except OSError:
         return 0
+
+
+def _direct_entry_count(path: Path) -> int:
+    """One-level count for a directory that will not be descended into."""
+    try:
+        with os.scandir(path) as it:
+            return sum(1 for _ in it)
+    except OSError:
+        return -1
+
+
+def _skip_reason(
+    entry: Path,
+    is_dir: bool,
+    is_link: bool,
+    config: Config,
+    ignore_filter: Optional[IgnoreFilter],
+    at_root: bool,
+) -> str:
+    """"" to include, "self" to drop silently, otherwise a display reason."""
+    if at_root and config.is_own_artefact(entry):
+        return "self"
+    if not config.show_hidden and entry.name.startswith("."):
+        return "hidden"
+    if ignore_filter and ignore_filter.is_ignored(entry, is_dir=is_dir):
+        return "ignored"
+    if is_dir and is_link:
+        return "symlink"
+    if is_dir and config.is_collapsed(entry.name):
+        return "not expanded"
+    return ""
+
+
+def _classify(entries: list[Path]) -> list[tuple[Path, bool, bool]]:
+    """Resolve is_dir/is_symlink once per entry, then sort dirs first."""
+    out: list[tuple[Path, bool, bool]] = []
+    for entry in entries:
+        try:
+            out.append((entry, entry.is_dir(), entry.is_symlink()))
+        except OSError:
+            continue
+    out.sort(key=lambda t: (not t[1], t[0].name.lower()))
+    return out
 
 
 def _copy_text_to_clipboard(text: str) -> None:
@@ -458,34 +547,47 @@ def scan(
             ignore_filter.pop(ignore_added)
         return node
 
-    # Filter and sort from the single iterdir() result
-    def _visible(e: Path) -> bool:
-        if e.is_symlink() or config.is_excluded(e.name):
-            return False
-        if ignore_filter and ignore_filter.is_ignored(e, is_dir=e.is_dir()):
-            return False
-        return True
+    at_root = depth == 1
 
-    entries = sorted(
-        (e for e in raw if _visible(e)),
-        key=lambda e: (not e.is_dir(), e.name.lower()),
-    )
+    for entry, is_dir, is_link in _classify(raw):
+        reason = _skip_reason(entry, is_dir, is_link, config, ignore_filter, at_root)
 
-    for entry in entries:
-        if entry.is_dir():
-            stats.folders += 1
-            beyond_limit = config.max_depth > 0 and depth >= config.max_depth
-            child = (
-                _scan_shallow(entry, config, stats, ignore_filter)
-                if beyond_limit
-                else scan(entry, config, stats, depth + 1, on_progress, on_truncate, ignore_filter)
-            )
-            node.dirs.append(child)
-        else:
+        if reason == "self":
+            continue
+
+        if not is_dir:
+            if reason:
+                if reason == "hidden":
+                    node.hidden_files += 1
+                else:
+                    node.ignored_files += 1
+                stats.skipped_files += 1
+                continue
             stats.files += 1
             size = _stat_file(entry)
             stats.total_bytes += size
             node.files.append(FileNode(entry.name, size))
+            continue
+
+        stats.folders += 1
+
+        if reason:
+            stats.collapsed += 1
+            node.dirs.append(DirNode(
+                name=entry.name,
+                path=entry,
+                note=reason,
+                entry_count=-1 if is_link else _direct_entry_count(entry),
+            ))
+            continue
+
+        beyond_limit = config.max_depth > 0 and depth >= config.max_depth
+        child = (
+            _scan_shallow(entry, config, stats, ignore_filter)
+            if beyond_limit
+            else scan(entry, config, stats, depth + 1, on_progress, on_truncate, ignore_filter)
+        )
+        node.dirs.append(child)
 
     # Pop ignore specs added by this directory
     if ignore_filter:
@@ -508,22 +610,33 @@ def _scan_shallow(
         node.error = "permission denied"
         return node
 
-    if ignore_filter:
-        ignore_added = ignore_filter.collect(directory, raw)
+    ignore_added = ignore_filter.collect(directory, raw) if ignore_filter else 0
 
-    for entry in raw:
-        if entry.is_symlink() or config.is_excluded(entry.name):
+    for entry, is_dir, is_link in _classify(raw):
+        reason = _skip_reason(entry, is_dir, is_link, config, ignore_filter, False)
+
+        if reason == "self":
             continue
-        if ignore_filter and ignore_filter.is_ignored(entry, is_dir=entry.is_dir()):
-            continue
-        if entry.is_dir():
-            stats.folders += 1
-            node.dirs.append(DirNode(name=entry.name, path=entry))
-        else:
+
+        if not is_dir:
+            if reason:
+                if reason == "hidden":
+                    node.hidden_files += 1
+                else:
+                    node.ignored_files += 1
+                stats.skipped_files += 1
+                continue
             stats.files += 1
             size = _stat_file(entry)
             stats.total_bytes += size
             node.files.append(FileNode(entry.name, size))
+            continue
+
+        stats.folders += 1
+        child = DirNode(name=entry.name, path=entry, note=reason or "depth limit")
+        stats.collapsed += 1
+        child.entry_count = -1 if is_link else _direct_entry_count(entry)
+        node.dirs.append(child)
 
     if ignore_filter:
         ignore_filter.pop(ignore_added)
@@ -536,6 +649,12 @@ def _scan_shallow(
 # ---------------------------------------------------------------------------
 
 def _annotation(node: DirNode) -> str:
+    if node.note:
+        if node.entry_count >= 0:
+            unit = "entry" if node.entry_count == 1 else "entries"
+            return f"  [{node.note}, {node.entry_count} {unit}]"
+        return f"  [{node.note}]"
+
     parts: list[str] = []
     fc = node.direct_folder_count
     fi = node.direct_file_count
@@ -560,7 +679,9 @@ def render_tree(node: DirNode, prefix: str = "", depth: int = 1) -> list[str]:
         lines.append(f"{prefix}{TEE}{DASH}{DASH} [{node.truncated_count} entries]")
         return lines
 
-    children: list[DirNode | FileNode] = [*node.dirs, *node.files]
+    children: list[DirNode | FileNode | SkipNote] = [*node.dirs, *node.files]
+    if node.hidden_files or node.ignored_files:
+        children.append(SkipNote(node.hidden_files, node.ignored_files))
     breathe = depth <= BREATHE_MAX_DEPTH and node.direct_folder_count >= BREATHE_MIN_DIRS
     prev_was_dir = False
 
@@ -578,8 +699,12 @@ def render_tree(node: DirNode, prefix: str = "", depth: int = 1) -> list[str]:
 
         if isinstance(child, DirNode):
             lines.append(f"{prefix}{connector}{FOLDER} {child.name}/{_annotation(child)}")
-            lines.extend(render_tree(child, prefix + extension, depth + 1))
+            if not child.note:
+                lines.extend(render_tree(child, prefix + extension, depth + 1))
             prev_was_dir = True
+        elif isinstance(child, SkipNote):
+            lines.append(f"{prefix}{connector}{child.label()}")
+            prev_was_dir = False
         else:
             lines.append(f"{prefix}{connector}{child.name}")
             prev_was_dir = False
@@ -625,7 +750,18 @@ def assemble_document(
     stats: Stats,
 ) -> str:
     header = render_header(folder_name, target, config.max_depth, elapsed)
-    root_annotation = f"  (Total: {stats.folders} folders, {stats.files} files, {_human_size(stats.total_bytes)})"
+    extras: list[str] = []
+    if stats.collapsed:
+        extras.append(f"{stats.collapsed} not expanded")
+    if stats.skipped_files:
+        extras.append(f"{stats.skipped_files} not listed")
+    suffix = f"; {', '.join(extras)}" if extras else ""
+    folder_unit = "folder" if stats.folders == 1 else "folders"
+    file_unit = "file" if stats.files == 1 else "files"
+    root_annotation = (
+        f"  (Total: {stats.folders} {folder_unit}, {stats.files} {file_unit}, "
+        f"{_human_size(stats.total_bytes)}{suffix})"
+    )
     parts = ["```", *header, "", f"{FOLDER} {folder_name}/{root_annotation}", *tree_lines, "```", ""]
     return "\n".join(parts)
 
@@ -637,9 +773,10 @@ def assemble_document(
 def parse_args(argv: list[str], default_path: Path) -> Config:
     path: Path | None = None
     depth = 0
-    show_hidden = False
+    show_hidden = True
     use_ignore = True
     clipboard = False
+    collapsed = DEFAULT_COLLAPSED
     i = 1
     while i < len(argv):
         a = argv[i]
@@ -657,6 +794,10 @@ def parse_args(argv: list[str], default_path: Path) -> Config:
             i += 1
         elif a == "--hidden":
             show_hidden = True
+        elif a in ("--no-hidden", "--nohidden"):
+            show_hidden = False
+        elif a in ("--expand", "--all"):
+            collapsed = frozenset()
         elif a == "--no-ignore":
             use_ignore = False
         elif a == "--clipboard":
@@ -677,7 +818,9 @@ def parse_args(argv: list[str], default_path: Path) -> Config:
         max_depth=depth,
         show_hidden=show_hidden,
         use_ignore=use_ignore,
+        collapsed=collapsed,
         clipboard=clipboard,
+        output_name="" if clipboard else f"{_root_display_name(target)}_dir_tree.md",
     )
 
 
@@ -791,8 +934,10 @@ def main() -> None:
         banner.append(f"  {str(config.target)}")
         if config.max_depth:
             banner.append(f"  Depth limit: {config.max_depth}")
-        if config.show_hidden:
-            banner.append(f"  Including hidden files")
+        if not config.show_hidden:
+            banner.append(f"  Hidden entries: suppressed")
+        if not config.collapsed:
+            banner.append(f"  Expanding all directories")
         if not config.use_ignore:
             banner.append(f"  Ignore files: disabled")
         print()
@@ -841,6 +986,10 @@ def main() -> None:
     _con_kv("Folders", f"{stats.folders:,}")
     _con_kv("Files", f"{stats.files:,}")
     _con_kv("Size", _human_size(stats.total_bytes))
+    if stats.collapsed:
+        _con_kv("Collapsed", f"{stats.collapsed:,} folder(s) not expanded")
+    if stats.skipped_files:
+        _con_kv("Not listed", f"{stats.skipped_files:,} file(s)")
     _con_kv("Time", f"{elapsed:.2f}s")
     _con_divider()
     print()
