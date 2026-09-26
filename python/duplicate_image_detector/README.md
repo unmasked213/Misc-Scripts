@@ -1,206 +1,189 @@
 # Duplicate Image Finder
 
-Find and manage duplicate or similar images in your photo collection with a modern web interface.
+Duplicate Image Finder scans a local folder for byte-identical images, decoded pixel-identical images, and geometrically verified visual variants. It provides a local web interface for review and a reversible quarantine workflow.
 
----
+The safety boundary is deliberate: only byte-identical files can be bulk-marked. Pixel matches and perceptual variants always require human review, and the program never permanently deletes a file.
 
-## What does it do?
+## Match types
 
-This tool scans a folder and finds images that are:
-- **Exact duplicates** - Same photo saved multiple times
-- **Resized versions** - Same photo at different sizes
-- **Cropped versions** - Part of the original photo
-- **Rotated/flipped copies** - Turned 90 degrees, mirrored, etc.
-- **Edited versions** - Brightness changed, filters applied, etc.
+The interface keeps four materially different findings separate:
 
-The tool uses perceptual hashing (pHash) and geometric matching to detect similarities that simple file comparison would miss.
+| Match type | Evidence | Meaning |
+|---|---|---|
+| **Byte-exact** | Full-file SHA-256 equality | The complete files are identical, including metadata and encoding |
+| **All-frame pixel match** | Canonical RGBA equality across every frame/page, including animation timing and the same alpha-capability semantics | Decoded visual content is identical, but metadata or encoding may differ |
+| **Geometry-verified variant** | Symmetric feature matches plus a plausible RANSAC transform | Images are related, but information-bearing differences may exist |
+| **Indirect link** | The member is connected through another verified result | No direct similarity score exists against the current comparison reference |
 
-**Safety first:** Files are moved to a `_dupes` folder for review - nothing is permanently deleted without your explicit action.
+Perceptual hashing is candidate generation only. It is never accepted as proof of duplication, and it can never produce a 100% result by itself.
 
----
+## Safety model
 
-## Quick Start
+### Reversible quarantine, not deletion
 
-### 1. Install Python
+The web app has no permanent-delete endpoint or control. A confirmed set is moved to a sibling quarantine directory outside the scanned tree:
 
-If you don't have Python installed:
-1. Download from https://www.python.org/downloads/
-2. **Check "Add Python to PATH"** during installation
-3. Restart any open terminals
-
-### 2. Install Dependencies
-
-**Option A:** Double-click `install_dependencies.bat`
-
-**Option B:** Run manually:
-```
-pip install -r requirements.txt
+```text
+<scanned-folder>.dupefinder_quarantine/
+  <operation-id>/
+    manifest.json
+    <original-relative-path>
 ```
 
-Or install packages directly:
-```
-pip install opencv-python-headless numpy pillow flask flask-cors
+Relative directories are preserved, and every operation is recorded in an atomically updated JSON manifest. The quarantine directory is not included in later scans.
+
+### Identity-bound actions
+
+The browser never sends a path as an action target. It sends an opaque result ID belonging to a completed scan. Immediately before a move, the server checks all of the following again:
+
+- the result still belongs to the active scan and group;
+- the canonical path is still inside the selected root;
+- the source is a regular file, not a symbolic link;
+- device, file ID/inode, byte size, modification time, and full SHA-256 still match the reviewed file;
+- the quarantine destination does not exist;
+- at least one member will remain in every affected group.
+
+Any mismatch blocks the operation. A file changed after review must be rescanned.
+
+### Immutable confirmation
+
+Opening **Review Quarantine** creates a short-lived server-side snapshot. The dialog displays the exact relative paths in that snapshot. Confirming sends only the snapshot token, so keyboard or background UI state cannot silently add another file.
+
+### Fail-closed Undo
+
+Undo first verifies the entire latest operation. It restores nothing unless every quarantined file has the expected content and every original destination is absent. It never overwrites a file that has appeared at an old path, and a failed operation remains available for inspection or retry.
+
+### Local API boundary
+
+The server binds to `127.0.0.1`, does not enable cross-origin access, and requires a random process token on every API request. Thumbnail, open-file, open-folder, marking, quarantine, and Undo routes resolve only opaque results from a completed session.
+
+## Installation
+
+Requirements:
+
+- Windows, macOS, or Linux
+- Python 3.10 or later
+- OpenCV, NumPy, Pillow, and Flask from `requirements.txt`
+- Tkinter for the native folder picker (normally included with Windows Python)
+
+On Windows, double-click `install_dependencies.bat`. Or run:
+
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-### 3. Launch the App
+No cross-origin Flask extension is required.
 
-**Option A (Recommended):** Double-click `Launch Duplicate Finder Web.vbs`
-- Starts the server in the background (no console window)
-- Opens your browser automatically
+## Running the web interface
 
-**Option B:** Run from command line:
+On Windows, double-click:
+
+```text
+Launch Duplicate Finder Web.vbs
 ```
+
+Or run from a terminal:
+
+```powershell
 python server.py
 ```
-Then open http://localhost:5000 in your browser.
 
----
+The browser opens at `http://localhost:5000`. An open tab keeps its active scan/review session alive. Reloading that tab restores results, marks, recovery state, and available Undo while the same server process is running. When browser contact is lost, the server waits for active scanning or file work to reach a safe checkpoint before shutting down gracefully.
 
-## How to Use
+## Review workflow
 
-### Step 1: Select a Folder
-- Click the folder input area
-- A native folder picker dialog opens
-- Select the folder containing images to scan
+1. Select the root folder.
+2. Set the minimum similarity for geometry-verified variants.
+3. Choose a scan mode:
+   - **Quick mode** checks byte identity and decoded all-frame/page identity only.
+   - **Full mode** additionally finds geometry-verified variants.
+4. Start the scan. Pause and Resume gate the worker; Cancel stops it at a safe checkpoint.
+5. Filter results by byte-exact, pixel-identical, or review-required variants.
+6. Inspect names, relative/full paths, dimensions, byte sizes, dates, alpha, and frame/page counts. The blue **comparison reference** is a stable navigation anchor, not a claim that it is the best-quality original.
+7. Mark files manually, or use **Mark byte-exact copies**. The server will not allow every active member of a group to be marked.
+8. Review the immutable quarantine list and confirm the move.
+9. Use Undo if necessary.
 
-### Step 2: Configure (Optional)
-- **Similarity threshold** (default 85%) - Lower = more matches, higher = stricter
-- **Quick mode** - Faster scanning, uses pHash only (skips geometric verification)
+Lossless PNG previews preserve transparency. For animated or multi-page media, the match signature covers all frames/pages even though a review preview may show one frame; the displayed frame/page count makes this explicit.
 
-### Step 3: Start Scanning
-- Click **"Start Scanning"**
-- Watch real-time progress as images are analyzed
-- First scan is slower; subsequent scans use cached fingerprints
+## Detection pipeline
 
-### Step 4: Review Results
-- Images are grouped by similarity
-- **Blue border** = Reference image (best quality, recommended to keep)
-- **Similarity %** shown on each image
-- Click any image to mark it for deletion (turns red)
-- Click again to unmark
+### Exact and decoded-content identity
 
-### Step 5: Use Helper Buttons
-| Button | Action |
-|--------|--------|
-| **Keep Largest** | Mark smaller files in current group for deletion |
-| **Keep Largest (All 100%)** | Batch-mark all exact duplicates across all groups |
-| **Clear Marks** | Unmark all in current group |
-| **Prev / Next** | Navigate between duplicate groups |
+Every candidate receives:
 
-### Step 6: Delete Marked Files
-- Click **"Delete Marked"**
-- Files are moved to `_dupes` folder (not permanently deleted)
-- Use **Undo** if you made a mistake
+- a full-file SHA-256;
+- a canonical content digest over EXIF-transposed RGBA frames/pages, dimensions, order, animation timing/disposal where available, and loop count;
+- format, dimensions, alpha, and frame/page metadata.
 
----
+This prevents two animations or TIFF documents with the same first frame/page but different later content from being classified as identical.
 
-## Features
+### Perceptual variants
 
-### Web Interface
-- **Light/dark theme** - Toggle with the theme switch in header (dark is default)
-- **Responsive design** - Works on various screen sizes
-- **Keyboard navigation** - Tab through elements, arrow keys for groups
-- **Real-time progress** - Server-Sent Events (SSE) for live updates
-- **Right-click context menu** - Open file location, view full image
-- **Side-by-side comparison** - Compare any image with the reference
+Full mode computes canonical perceptual hashes only to propose candidates. Candidate generation is global, so resized, rotated, cropped, and aspect-boundary pairs are not excluded by hard megapixel buckets. The selected threshold is the actual minimum; no hidden lower variant threshold is applied.
 
-### Detection Engine
-- **Perceptual hashing** (8x8 pHash) for fast similarity detection
-- **ORB feature matching** with RANSAC for geometric verification
-- **Multiple rotation handling** - Detects rotated/flipped copies
-- **Configurable thresholds** for duplicate vs. variant classification
+Candidates must then pass symmetric, one-to-one descriptor matching and geometric verification. The verifier checks inlier count, spatial image coverage, residual error, transform scale, and degeneracy. Valid reflections are supported. Low-texture or pHash-only pairs are rejected unless exact content identity was already established.
 
-### Safety
-- Files moved to `_dupes` folder, never deleted directly
-- Undo functionality for accidental deletions
-- Reference image clearly marked (blue border)
-- Confirmation required before deletion
+Related results form graph components. Every node from a positive edge remains visible. When a member has no direct edge to the chosen comparison reference, it is labelled **Indirect link** rather than being silently removed or assigned a misleading score.
 
-### Performance
-- **Temporary SQLite cache** - Fingerprints cached during scan session
-- **Quick mode** - Skip expensive geometric verification
-- **Auto-shutdown** - Server closes when browser tab is closed (15-second timeout)
-- **Multithreaded comparison** - Parallel processing for faster scans
+## Standalone command-line report
 
----
+The core engine can also run without the web UI:
 
-## Files
-
-| File | Purpose |
-|------|---------|
-| `server.py` | Flask web server with REST API |
-| `dupefinder.py` | Core detection engine (pHash + ORB matching) |
-| `index.html` | Web UI (single-page app) |
-| `requirements.txt` | Python dependencies |
-| `install_dependencies.bat` | One-click dependency installer (Windows) |
-| `Launch Duplicate Finder Web.vbs` | Windowless launcher - no console window (Windows) |
-| `QUICK_START.md` | Condensed setup and usage guide |
-
----
-
-## Command Line Usage
-
-The detection engine can also be used standalone:
-
-```
+```powershell
 python dupefinder.py "C:\Photos" --output "C:\Reports"
 ```
 
-This generates:
-- JSON report with all pairwise decisions
-- CSV file of duplicate pairs
-- HTML report with thumbnails for review
+It writes JSON, CSV, and HTML review reports using the same exact/pixel/geometry distinctions as the web scan. Thumbnail filenames use opaque hashes of their full source identity, so equal basenames in different directories cannot overwrite one another.
 
-Run `python dupefinder.py --help` for all options.
+Each successful run is staged and published as a new `report-<UTC time>-<ID>` directory inside the selected output folder. Earlier reports are never mixed with or overwritten by a later run. The HTML review is one page, so aggregate selections do not depend on browser-specific storage sharing between local files. Selections are scoped to that one generated report and filtered through opaque member IDs, so another report cannot leak stale paths into an export. If a source changes while thumbnails are being created, the incomplete staging directory is removed and no report is published.
 
----
+Run `python dupefinder.py --help` for options.
 
-## Tips
+## Supported media
 
-- **First scan is slower** - The tool analyzes each image and caches fingerprints for future scans
-- **Quick mode** - Use for finding exact duplicates quickly; disable for finding edited/cropped versions
-- **Lower threshold** - Finds more matches but may include false positives
-- **Keep Largest** - Quick way to keep highest quality versions
-- **Check _dupes folder** - Review before permanently deleting
+Common Pillow formats are included by default: JPEG, PNG, WebP, TIFF, BMP, and GIF. HEIC and AVIF require a Pillow build or plugin that provides those codecs. Animated WebP/GIF and multi-page TIFF content is evaluated across all decoded frames/pages.
 
----
+## Project files
+
+| File | Purpose |
+|---|---|
+| `server.py` | Authenticated local web API, scan orchestration, quarantine, and Undo |
+| `dupefinder.py` | Hashing, all-frame content identity, feature geometry, clustering, and reports |
+| `index.html` | Single-page review interface |
+| `requirements.txt` | Python dependencies |
+| `install_dependencies.bat` | Windows dependency installer |
+| `Launch Duplicate Finder Web.vbs` | Windowless Windows launcher |
+| `QUICK_START.md` | Condensed setup and review workflow |
+
+## Operational notes
+
+- The web scan cache is temporary and cleaned after each scan. The standalone CLI can keep its configured fingerprint cache, keyed by full-file SHA-256 and analysis configuration. A fingerprint is cached only after the source identity and full SHA-256 are revalidated; changed content is not reused.
+- The scanner ignores legacy `_dupes` directories and quarantine directories.
+- If another program edits, synchronises, replaces, or renames a reviewed file, the move is expected to fail closed.
+- Quarantine uses no-overwrite filesystem primitives. On a filesystem that cannot provide them, the move is rejected instead of falling back to an overwrite-capable operation.
+- Similar-looking images are not necessarily redundant. Review every pixel match or geometry-verified variant for metadata, edits, crops, annotations, redactions, and provenance you may want to keep.
+- Quarantine manifests are recovery records. Keep them with quarantined files until you have completed your own backup/review process.
 
 ## Troubleshooting
 
-**"Python is not recognized"**
-- Reinstall Python with "Add Python to PATH" checked
+**Python is not recognised**  
+Reinstall Python and enable **Add Python to PATH**.
 
-**"No module named cv2" / "No module named flask"**
-- Run `pip install -r requirements.txt`
+**A Python module is missing**  
+Run `python -m pip install -r requirements.txt` from the project folder.
 
-**Browser doesn't open automatically**
-- Manually go to http://localhost:5000
+**The browser does not open**  
+Open `http://localhost:5000` manually.
 
-**Server won't start (port in use)**
-- Close other instances or change port in server.py
+**The port is already in use**  
+Close another running instance, then launch again.
 
-**No duplicates found**
-- Ensure folder contains supported image files (JPG, PNG, WEBP, HEIC, etc.)
-- Try lowering the similarity threshold
+**A file is rejected as changed**  
+Do not bypass the check. Start a new scan and review the current file.
 
-**Server doesn't shut down**
-- Close the browser tab - server auto-shuts down after 15 seconds
-- Or press Ctrl+C in the terminal if running from command line
+**Undo reports an occupied original path**  
+Inspect the file at that path. Move or rename it yourself only after deciding what it is, then retry Undo.
 
----
-
-## Supported Formats
-
-JPG, JPEG, PNG, WEBP, HEIC, AVIF, TIFF, BMP, GIF
-
----
-
-## Requirements
-
-- **Python 3.7+** (3.9+ recommended)
-- opencv-python-headless >= 4.5.0
-- numpy >= 1.19.0
-- pillow >= 8.0.0
-- flask >= 2.0.0
-- flask-cors >= 3.0.0
-- tkinter (included with Python on Windows, needed for folder picker dialog)
+**An image format fails to load**  
+Install an appropriate Pillow codec/plugin, or convert a copy to a supported format.

@@ -1,0 +1,209 @@
+.app {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    height: 100vh;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--ui-space-4);
+    padding: var(--ui-space-3) var(--ui-space-4);
+    background: var(--ui-elevated-1);
+    border-bottom: 1px solid var(--ui-border);
+}
+.topbar__title { display: flex; align-items: baseline; gap: var(--ui-space-3); min-width: 0; }
+.topbar__title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-sm); }
+.topbar__actions { display: flex; gap: var(--ui-space-2); flex-shrink: 0; }
+
+/* ---------- toolbar ---------- */
+.toolbar {
+    display: flex; align-items: center; gap: var(--ui-space-4);
+    flex-wrap: wrap;
+    padding: var(--ui-space-2) var(--ui-space-4);
+    background: var(--ui-elevated-1);
+    border-bottom: 1px solid var(--ui-border);
+    font-size: var(--ui-text-sm);
+}
+.ctl { display: flex; align-items: center; gap: var(--ui-space-2); color: var(--ui-text-dim); white-space: nowrap; }
+.ctl input[type="range"] { width: 110px; }
+
+.seg { display: flex; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; padding: 5px 10px; }
+.seg button + button { border-left: 1px solid var(--ui-border); }
+.seg button.on { background: var(--ui-accent); color: #fff; }
+.seg .n { opacity: 0.7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+/* ---------- body ---------- */
+.body { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+
+.gridwrap {
+    position: relative;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: var(--ui-space-3);
+    outline: none;
+}
+.vg-spacer { width: 100%; pointer-events: none; }
+.vg-layer { position: absolute; inset: var(--ui-space-3) var(--ui-space-3) auto var(--ui-space-3); }
+
+/* ---------- tiles ---------- */
+.tile {
+    background: var(--ui-elevated-1);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    overflow: hidden;
+    cursor: pointer;
+    display: flex; flex-direction: column;
+    contain: strict;
+    content-visibility: auto;
+}
+/* Selection is a ring, never a dim or a colour wash — both lie about the
+   image content you are trying to judge. */
+.tile.sel { border-color: var(--ui-accent); box-shadow: inset 0 0 0 2px var(--ui-accent); }
+.tile.lead { outline: 2px solid var(--ui-accent-dim); outline-offset: -1px; }
+/* Filtered-out tiles dim but stay visible, so you can see what your filter did. */
+.tile.dim { opacity: 0.28; }
+.tile.dim .tile__check { display: none; }
+
+.tile__box {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: var(--ui-elevated-2);
+    display: flex; align-items: center; justify-content: center;
+}
+.tile__img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.tile__skel {
+    position: absolute; inset: 0;
+    background: linear-gradient(100deg, var(--ui-elevated-2) 30%, var(--ui-elevated-3) 50%, var(--ui-elevated-2) 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.tile__meta {
+    display: flex; justify-content: space-between; gap: 6px;
+    padding: 4px 6px;
+    font-size: var(--ui-text-xs);
+    color: var(--ui-text-dim);
+    background: var(--ui-elevated-1);
+    border-top: 1px solid var(--ui-border);
+    font-variant-numeric: tabular-nums;
+}
+.tile__badges { position: absolute; top: 4px; left: 4px; display: flex; gap: 3px; flex-wrap: wrap; }
+.badge {
+    font-size: 10px; padding: 1px 5px; border-radius: 999px;
+    background: rgba(0,0,0,0.62); color: #fff; backdrop-filter: blur(2px);
+}
+.badge.stack { background: var(--ui-accent); }
+.badge.have { background: var(--ui-ok); }
+.badge.fail { background: var(--ui-fail); }
+.badge.drm { background: var(--ui-warn); color: #000; }
+.badge.up { background: var(--ui-accent-dim); }
+
+.tile__check {
+    position: absolute; top: 4px; right: 4px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(0,0,0,0.5); border: 1.5px solid #fff;
+    display: flex; align-items: center; justify-content: center;
+}
+.tile.sel .tile__check { background: var(--ui-accent); border-color: var(--ui-accent); }
+.tile__check svg { width: 12px; height: 12px; stroke: #fff; fill: none; stroke-width: 3; opacity: 0; }
+.tile.sel .tile__check svg { opacity: 1; }
+
+.marquee {
+    position: absolute;
+    border: 1px solid var(--ui-accent);
+    background: color-mix(in srgb, var(--ui-accent) 18%, transparent);
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* ---------- inspector ---------- */
+.inspector {
+    border-left: 1px solid var(--ui-border);
+    background: var(--ui-elevated-1);
+    padding: var(--ui-space-3);
+    overflow-y: auto;
+    font-size: var(--ui-text-sm);
+}
+.inspector__empty { padding: var(--ui-space-4) 0; text-align: center; }
+.inspector img {
+    width: 100%; border-radius: var(--ui-radius); background: var(--ui-elevated-2);
+    margin-bottom: var(--ui-space-3);
+}
+.kv { display: grid; grid-template-columns: 78px 1fr; gap: 4px var(--ui-space-2); margin-bottom: var(--ui-space-3); }
+.kv dt { color: var(--ui-text-faint); }
+.kv dd { margin: 0; word-break: break-all; }
+.inspector .row { display: flex; gap: var(--ui-space-2); margin-bottom: var(--ui-space-2); }
+.inspector .row button { flex: 1; }
+
+/* ---------- transfer bar ---------- */
+/* Always visible. v1 rendered every result into a visibility:hidden container,
+   so the user never once saw "12 downloaded, 3 failed". */
+.transfer {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--ui-space-4);
+    padding: var(--ui-space-2) var(--ui-space-4);
+    background: var(--ui-elevated-1);
+    border-top: 1px solid var(--ui-border);
+    min-height: 46px;
+}
+.transfer__left, .transfer__right { display: flex; align-items: center; gap: var(--ui-space-2); }
+.transfer__bar { flex: 1; display: flex; align-items: center; gap: var(--ui-space-3); min-width: 0; }
+
+.seg-bar {
+    flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
+    background: var(--ui-elevated-3); display: flex;
+}
+.seg-bar i { display: block; height: 100%; transition: width var(--ui-motion); }
+.s-done { background: var(--ui-ok); }
+.s-fail { background: var(--ui-fail); }
+.s-live { background: var(--ui-accent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+
+/* ---------- ledger ---------- */
+.ledger {
+    position: fixed; right: var(--ui-space-4); bottom: 60px;
+    width: 460px; max-height: 60vh; overflow-y: auto;
+    background: var(--ui-elevated-2);
+    border: 1px solid var(--ui-border-strong);
+    border-radius: var(--ui-radius-lg);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+    padding: var(--ui-space-4);
+    z-index: 20;
+}
+.ledger h3 { margin: 0 0 var(--ui-space-3); font-size: var(--ui-text-lg); }
+.ledger__group {
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    padding: var(--ui-space-2) var(--ui-space-3);
+    margin-bottom: var(--ui-space-2);
+}
+.ledger__group .hint { color: var(--ui-warn); font-size: var(--ui-text-xs); margin-top: 4px; }
+.ledger__group .samples { font-size: 10px; color: var(--ui-text-faint); word-break: break-all; margin-top: 4px; }
+
+.notice {
+    padding: var(--ui-space-2) var(--ui-space-4);
+    background: var(--ui-elevated-2);
+    border-bottom: 1px solid var(--ui-border);
+    color: var(--ui-text-dim);
+    font-size: var(--ui-text-sm);
+    display: flex; flex-wrap: wrap; gap: var(--ui-space-2) var(--ui-space-4);
+}
+.notice span { display: inline-flex; align-items: center; gap: 6px; }
+.notice .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ui-warn); flex: none; }
+.notice .dot.drm { background: var(--ui-fail); }
+.notice .dot.info { background: var(--ui-accent); }
+.ledger__note { color: var(--ui-text-dim); font-size: var(--ui-text-xs); margin-top: 4px; }
+.ledger__note .p { color: var(--ui-text-faint); word-break: break-all; }
+
+.empty {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: var(--ui-space-3); text-align: center; color: var(--ui-text-dim);
+    padding: var(--ui-space-6);
+}
+.empty h2 { margin: 0; font-size: var(--ui-text-lg); color: var(--ui-text); }
+.empty ul { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--ui-space-2); }

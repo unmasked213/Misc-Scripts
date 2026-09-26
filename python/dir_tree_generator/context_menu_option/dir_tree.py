@@ -1,61 +1,43 @@
 # -*- coding: utf-8 -*-
 """
-dir_tree.py - recursive directory tree generator (double-click friendly)
+dir_tree.py - bounded recursive directory tree generator (double-click friendly)
 
-Scans a target folder recursively and generates a markdown directory tree
-with box-drawing characters, inline folder annotations, and a boxed header.
+Scans a target folder recursively and generates a Markdown directory tree with
+box-drawing characters, inline folder annotations, and a boxed header.
 
-Features
-  - Curved box-drawing connectors with pipe-separated top-level sections.
-  - Folder icons with inline child counts and sizes per directory.
-  - Boxed header with folder name, path, scan timestamp, elapsed time,
-    and summary totals. Same totals repeated in footer.
-  - Sorts directories first, then files, case-insensitive.
-  - Never omits anything silently. Heavy directories (node_modules, .git,
-    virtualenvs, tool caches) are listed but not descended into, tagged with
-    their direct entry count. Symlinked and ignore-matched directories are
-    listed the same way rather than disappearing.
-  - Hidden entries are included by default. --no-hidden suppresses them and
-    reports the per-directory count instead of dropping them silently.
-  - Self-excludes only its own file and the output file it is about to
-    write, matched by path rather than by name.
-  - Configurable max depth (default unlimited).
-  - Discovers .*ignore files (e.g. .gitignore, .cursorignore) and excludes
-    matching paths. Requires pathspec (pip install pathspec). Use --no-ignore
-    to bypass. Also supports a .treeignore for tree-specific exclusions.
-  - Interactive prompt when a directory exceeds TRUNCATE_THRESHOLD in normal
-    file-output mode. Clipboard mode is non-interactive and scans in full.
-  - Progress indicator during normal scans.
-  - Can copy the complete generated markdown directly to the Windows clipboard.
-  - Single stat() per file, single iterdir() per directory - no redundant I/O.
-  - Handles UNC paths and drive roots.
-  - Waits for Enter before exit so double-click works on Windows.
+Default behaviour is designed for AI context and guarantees bounded output:
+  - Does not read .gitignore, .cursorignore, or any other ignore file.
+  - Lists filenames such as secrets.yaml and .env without reading their content.
+  - Lists known low-value directories but does not descend into them.
+  - Does not follow directory symlinks, junctions, or duplicate directory roots.
+  - Limits each directory to 60 child folders and 80 files.
+  - Limits each repetitive bulk file family to 20 representative filenames.
+  - Trims lower-value subtrees when needed to keep the complete document within
+    1,000 lines. Every reduction is shown explicitly in the tree.
 
-Output
+Output:
   Default: saved as [foldername]_dir_tree.md in the target folder.
   --clipboard: copied to the Windows clipboard; no output file is written.
 
-Usage
-  Double-click to scan the folder it lives in, or:
-    python dir_tree.py --path "X:/Projects" --depth 4 --expand --no-ignore
+Usage:
+  Double-click to scan the folder the script lives in, or:
+    python dir_tree.py --path "X:/Projects" --depth 4
     pythonw dir_tree.py --clipboard --path "X:/Projects"
+    python dir_tree.py --path "X:/Projects" --unbounded --expand
 """
 from __future__ import annotations
 
+import hashlib
 import os
-import re
+import stat
 import sys
 import time
 import traceback
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
-
-try:
-    import pathspec as _pathspec
-except ImportError:
-    _pathspec = None
+from typing import Any, Callable, Iterable, Optional, Sequence, TypeVar
 
 os.environ["PYTHONUTF8"] = "1"
 try:
@@ -66,51 +48,299 @@ except Exception:
 
 
 # ---------------------------------------------------------------------------
-# Box-drawing characters (escaped so the source file stays pure ASCII)
+# Box-drawing characters
 # ---------------------------------------------------------------------------
 
-PIPE      = "\u2502"   # vertical
-TEE       = "\u251c"   # tee right
-ELBOW     = "\u2570"   # curved elbow
-DASH      = "\u2500"   # horizontal
-BOX_TL    = "\u256d"   # top-left corner
-BOX_TR    = "\u256e"   # top-right corner
-BOX_BL    = "\u2570"   # bottom-left corner
-BOX_BR    = "\u256f"   # bottom-right corner
-BOX_L_TEE = "\u251c"   # left tee (divider)
-BOX_R_TEE = "\u2524"   # right tee (divider)
-FOLDER    = "\U0001f4c1"  # folder emoji
+PIPE = "\u2502"
+TEE = "\u251c"
+ELBOW = "\u2570"
+DASH = "\u2500"
+BOX_TL = "\u256d"
+BOX_TR = "\u256e"
+BOX_BL = "\u2570"
+BOX_BR = "\u256f"
+BOX_L_TEE = "\u251c"
+BOX_R_TEE = "\u2524"
+FOLDER = "\U0001f4c1"
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Output policy
 # ---------------------------------------------------------------------------
 
-# Directories that are listed but not descended into. Nothing here is
-# dropped: a collapsed directory still appears in the tree, tagged with its
-# reason and direct entry count. Only genuinely unbounded trees belong here -
-# anything small enough to read is structure, not noise.
-DEFAULT_COLLAPSED: frozenset[str] = frozenset({
-    "node_modules", ".git", ".svn", ".hg",
-    ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache",
+MAX_DOCUMENT_LINES = 1_000
+MIN_DOCUMENT_LINES = 250
+MAX_DIRECTORIES_PER_DIRECTORY = 60
+MAX_FILES_PER_DIRECTORY = 80
+MAX_BULK_FILES_PER_CATEGORY = 20
+MAX_EXPANDED_IDENTICAL_SIBLINGS = 4
+MIN_IDENTICAL_SIBLING_GROUP = 6
+MIN_IDENTICAL_SUBTREE_LINES = 8
+
+# Blank separators remain between top-level sections only. Applying them at
+# every depth can add thousands of lines without adding structural information.
+BREATHE_MAX_DEPTH = 1
+BREATHE_MIN_DIRS = 2
+
+# These directories are always shown, but their contents are not traversed by
+# default. The list is intentionally conservative and limited to predictable
+# dependency, version-control, cache, environment, and generated-output trees.
+DEFAULT_COLLAPSED_NAMES: frozenset[str] = frozenset({
+    ".git",
+    ".hg",
+    ".svn",
+    ".cache",
+    ".mypy_cache",
+    ".pytest_cache",
     ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "bower_components",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+    "venv",
+    ".eggs",
+    ".gradle",
+    ".next",
+    ".nuxt",
+    ".parcel-cache",
+    ".pnpm-store",
+    ".svelte-kit",
+    ".turbo",
+    "coverage",
+    "htmlcov",
 })
 
-TRUNCATE_THRESHOLD = 50
-BREATHE_MAX_DEPTH  = 99
-BREATHE_MIN_DIRS   = 0
+# Path-specific tool internals that can contain a second complete copy of the
+# project. The suffix is matched case-insensitively against the target-relative
+# directory path.
+DEFAULT_COLLAPSED_PATH_SUFFIXES: tuple[tuple[str, ...], ...] = (
+    (".claude", "worktrees"),
+    (".codex", "worktrees"),
+    (".agents", "worktrees"),
+)
+
+# Directory names prioritised when a single parent has more child directories
+# than can be listed. This protects common source, configuration, test, and
+# documentation entry points without applying project-specific ignore files.
+PRIORITY_DIRECTORY_NAMES: frozenset[str] = frozenset({
+    ".agents",
+    ".claude",
+    ".codex",
+    "addons",
+    "ai-stack",
+    "blueprints",
+    "pyscript",
+    "script-modules",
+    "script-opts",
+    "shaders",
+    "app",
+    "apps",
+    "assets",
+    "bin",
+    "cards",
+    "client",
+    "components",
+    "config",
+    "configs",
+    "custom_components",
+    "docs",
+    "documentation",
+    "include",
+    "lib",
+    "modules",
+    "packages",
+    "plugins",
+    "public",
+    "scripts",
+    "server",
+    "skills",
+    "src",
+    "source",
+    "templates",
+    "test",
+    "tests",
+    "themes",
+    "ui",
+    "views",
+    "www",
+})
+
+# These names are not collapsed automatically. They are only preferred for
+# global budget trimming after local folder/file limits have already applied.
+LOW_VALUE_DIRECTORY_HINTS: frozenset[str] = frozenset({
+    "archive",
+    "archives",
+    "backup",
+    "backups",
+    "cache",
+    "caches",
+    "downloads",
+    "example",
+    "examples",
+    "fixtures",
+    "fonts",
+    "generated",
+    "images",
+    "image",
+    "logs",
+    "media",
+    "recordings",
+    "reports",
+    "snapshots",
+    "temp",
+    "temporary",
+    "third_party",
+    "thumbnails",
+    "thumbnail",
+    "tmp",
+    "transcripts",
+    "vendor",
+})
+
+# Protected names are collapsed later than ordinary branches when the global
+# line budget is enforced.
+GLOBAL_PROTECTED_DIRECTORY_NAMES: frozenset[str] = frozenset({
+    *PRIORITY_DIRECTORY_NAMES,
+    "base",
+    "core",
+    "hooks",
+    "rules",
+})
+
+BULK_EXTENSION_CATEGORIES: dict[str, frozenset[str]] = {
+    "image": frozenset({
+        ".avif", ".bmp", ".gif", ".heic", ".heif", ".ico", ".jfif",
+        ".jpeg", ".jpg", ".png", ".psd", ".raw", ".svg", ".tif",
+        ".tiff", ".webp",
+    }),
+    "video": frozenset({
+        ".3gp", ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov",
+        ".mp4", ".mpeg", ".mpg", ".mts", ".ogv", ".webm", ".wmv",
+    }),
+    "audio": frozenset({
+        ".aac", ".aiff", ".alac", ".flac", ".m4a", ".mid", ".midi",
+        ".mp3", ".oga", ".ogg", ".opus", ".wav", ".wma",
+    }),
+    "font": frozenset({
+        ".eot", ".otf", ".ttc", ".ttf", ".woff", ".woff2",
+    }),
+    "archive": frozenset({
+        ".7z", ".bz2", ".cab", ".gz", ".iso", ".rar", ".tar",
+        ".tar.bz2", ".tar.gz", ".tar.xz", ".tbz2", ".tgz", ".txz",
+        ".xz", ".zip", ".zst",
+    }),
+    "binary": frozenset({
+        ".a", ".aab", ".apk", ".appimage", ".bin", ".deb", ".dll",
+        ".dylib", ".exe", ".lib", ".msi", ".o", ".obj", ".pdb",
+        ".rpm", ".so", ".wasm",
+    }),
+    "database": frozenset({
+        ".db", ".db-shm", ".db-wal", ".sqlite", ".sqlite3",
+    }),
+    "dataset": frozenset({
+        ".arrow", ".csv", ".feather", ".npy", ".npz", ".parquet",
+        ".pickle", ".pkl",
+    }),
+    "document": frozenset({
+        ".doc", ".docm", ".docx", ".epub", ".odf", ".odg", ".odp",
+        ".ods", ".odt", ".pdf", ".ppt", ".pptm", ".pptx", ".rtf",
+        ".xls", ".xlsb", ".xlsm", ".xlsx",
+    }),
+    "model": frozenset({
+        ".ckpt", ".gguf", ".onnx", ".pt", ".pth", ".safetensors",
+    }),
+    "log": frozenset({
+        ".log", ".trace",
+    }),
+}
+
+REPETITIVE_BULK_CATEGORIES: frozenset[str] = frozenset({
+    "archive",
+    "audio",
+    "binary",
+    "database",
+    "dataset",
+    "font",
+    "image",
+    "log",
+    "model",
+    "video",
+})
+
+STRUCTURAL_EXTENSIONS: frozenset[str] = frozenset({
+    ".asm", ".astro", ".bat", ".c", ".cc", ".cfg", ".cjs", ".clj",
+    ".cljs", ".cmd", ".conf", ".cpp", ".cs", ".css", ".cu", ".cuh",
+    ".dart", ".env", ".fish", ".fs", ".fsx", ".glsl", ".go", ".graphql",
+    ".groovy", ".h", ".handlebars", ".hbs", ".hh", ".hook", ".hpp",
+    ".htm", ".html", ".ini", ".java", ".jinja", ".jinja2", ".jl",
+    ".js", ".json", ".json5", ".jsonc", ".jsx", ".kt", ".kts", ".less",
+    ".lua", ".m", ".md", ".mdx", ".mjs", ".mm", ".mustache", ".php",
+    ".pl", ".pm", ".proto", ".ps1", ".psd1", ".psm1", ".py", ".pyi",
+    ".r", ".rb", ".rs", ".sass", ".scala", ".scss", ".sh", ".sql",
+    ".svelte", ".swift", ".tex", ".tf", ".tfvars", ".toml", ".ts",
+    ".tsx", ".txt", ".vue", ".xml", ".yaml", ".yml", ".zsh",
+})
+
+SPECIAL_FILENAMES: frozenset[str] = frozenset({
+    ".dockerignore",
+    ".editorconfig",
+    ".env",
+    ".gitattributes",
+    ".gitignore",
+    ".npmrc",
+    ".prettierignore",
+    ".prettierrc",
+    ".python-version",
+    ".treeignore",
+    "agents.md",
+    "architecture.md",
+    "cargo.lock",
+    "cargo.toml",
+    "changelog",
+    "changelog.md",
+    "claude.md",
+    "cmakelists.txt",
+    "codeowners",
+    "compose.yaml",
+    "compose.yml",
+    "containerfile",
+    "dockerfile",
+    "gemfile",
+    "go.mod",
+    "go.sum",
+    "justfile",
+    "license",
+    "license.md",
+    "makefile",
+    "manifest.json",
+    "package-lock.json",
+    "package.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "pyproject.toml",
+    "readme",
+    "readme.md",
+    "requirements.txt",
+    "system_context.yaml",
+    "tsconfig.json",
+    "yarn.lock",
+})
+
 try:
-    SCRIPT_PATH    = Path(__file__).resolve()
+    SCRIPT_PATH = Path(__file__).resolve()
 except OSError:
-    SCRIPT_PATH    = Path(__file__)
-IGNORE_RE          = re.compile(r"^\..+ignore$")
+    SCRIPT_PATH = Path(__file__)
 
 ProgressFn = Callable[[int, str], None]
-TruncateFn = Callable[[Path, int], bool]
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
-# Data model - scan phase produces this, render phase consumes it
+# Data model
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -118,16 +348,34 @@ class Config:
     target: Path
     max_depth: int = 0
     show_hidden: bool = True
-    use_ignore: bool = True
-    collapsed: frozenset[str] = DEFAULT_COLLAPSED
+    collapsed_names: frozenset[str] = DEFAULT_COLLAPSED_NAMES
     clipboard: bool = False
     output_name: str = ""
+    bounded: bool = True
+    max_document_lines: int = MAX_DOCUMENT_LINES
+    max_directories_per_directory: int = MAX_DIRECTORIES_PER_DIRECTORY
+    max_files_per_directory: int = MAX_FILES_PER_DIRECTORY
+    max_bulk_files_per_category: int = MAX_BULK_FILES_PER_CATEGORY
 
-    def is_collapsed(self, name: str) -> bool:
-        return name in self.collapsed
+    def is_collapsed(self, entry: Path) -> bool:
+        if not self.collapsed_names:
+            return False
+        if entry.name.casefold() in self.collapsed_names:
+            return True
+        try:
+            relative_parts = tuple(
+                part.casefold() for part in entry.relative_to(self.target).parts
+            )
+        except ValueError:
+            relative_parts = tuple(part.casefold() for part in entry.parts)
+        return any(
+            len(relative_parts) >= len(suffix)
+            and relative_parts[-len(suffix):] == suffix
+            for suffix in DEFAULT_COLLAPSED_PATH_SUFFIXES
+        )
 
     def is_own_artefact(self, entry: Path) -> bool:
-        """This script and the file this run is about to write - root only."""
+        """Exclude this script and this run's output file at the target root."""
         if self.output_name and entry.name == self.output_name:
             return True
         if entry.name != SCRIPT_PATH.name:
@@ -139,30 +387,23 @@ class Config:
 
 
 @dataclass(frozen=True)
-class FileNode:
-    name: str
-    size: int = 0
+class EntryInfo:
+    path: Path
+    is_dir: bool
+    is_link: bool
 
 
 @dataclass(frozen=True)
-class SkipNote:
-    """Rendered as a trailing pseudo-child summarising unlisted files."""
-    hidden: int = 0
-    ignored: int = 0
+class FileNode:
+    name: str
+    size: int = 0
+    category: str = ""
+    priority: int = 0
 
-    @property
-    def count(self) -> int:
-        return self.hidden + self.ignored
 
-    def label(self) -> str:
-        unit = "file" if self.count == 1 else "files"
-        if self.hidden and self.ignored:
-            why = "hidden or ignored"
-        elif self.hidden:
-            why = "hidden"
-        else:
-            why = "ignore-matched"
-        return f"[{self.count} {unit} {why}]"
+@dataclass(frozen=True)
+class SummaryNode:
+    label: str
 
 
 @dataclass
@@ -171,24 +412,16 @@ class DirNode:
     path: Path
     dirs: list[DirNode] = field(default_factory=list)
     files: list[FileNode] = field(default_factory=list)
+    dir_notes: list[SummaryNode] = field(default_factory=list)
+    file_notes: list[SummaryNode] = field(default_factory=list)
     error: str = ""
-    truncated_count: int = 0
-    note: str = ""           # why this directory was not descended into
-    entry_count: int = -1    # direct entries inside a collapsed directory
-    hidden_files: int = 0    # files suppressed by --no-hidden
-    ignored_files: int = 0   # files matched by an ignore rule
-
-    @property
-    def direct_file_bytes(self) -> int:
-        return sum(f.size for f in self.files)
-
-    @property
-    def direct_folder_count(self) -> int:
-        return len(self.dirs)
-
-    @property
-    def direct_file_count(self) -> int:
-        return len(self.files)
+    note: str = ""
+    entry_count: int = -1
+    direct_folder_total: int = 0
+    direct_file_total: int = 0
+    direct_file_bytes: int = 0
+    trimmed_folder_total: int = 0
+    trimmed_file_total: int = 0
 
 
 @dataclass
@@ -198,75 +431,60 @@ class Stats:
     total_bytes: int = 0
     dirs_scanned: int = 0
     collapsed: int = 0
-    skipped_files: int = 0
+    unlisted_files: int = 0
+    unlisted_dirs: int = 0
+    budget_collapsed: int = 0
+    repetitive_collapsed: int = 0
 
 
+@dataclass
+class ScanContext:
+    target: Path
+    seen_realpaths: dict[str, str] = field(default_factory=dict)
+    seen_inodes: dict[tuple[int, int], str] = field(default_factory=dict)
 
-class IgnoreFilter:
-    """Discovers .*ignore files during scan and matches paths against them.
+    def register(self, path: Path, display_path: str) -> Optional[str]:
+        """Register a directory and return its earlier path if already seen."""
+        real_key = _normalised_realpath(path)
+        inode_key = _directory_inode(path)
 
-    Patterns are scoped by ancestry. collect() pushes specs onto a stack
-    and returns the count added; pop() trims them back when leaving a
-    directory, so sibling branches never see each other's ignore rules.
-    """
+        earlier = self.seen_realpaths.get(real_key)
+        if earlier is None and inode_key is not None:
+            earlier = self.seen_inodes.get(inode_key)
+        if earlier is not None:
+            return earlier
 
-    def __init__(self) -> None:
-        self._specs: list[tuple[Path, _pathspec.PathSpec]] = []
-        self.discovered: list[tuple[Path, str]] = []
+        self.seen_realpaths[real_key] = display_path
+        if inode_key is not None:
+            self.seen_inodes[inode_key] = display_path
+        return None
 
-    @staticmethod
-    def available() -> bool:
-        return _pathspec is not None
 
-    def collect(self, directory: Path, entries: list[Path]) -> int:
-        """Scan a directory's entries for ignore files and parse them.
-
-        Returns the number of specs added (used by pop() to unwind).
-        """
-        added = 0
-        for entry in entries:
-            if not entry.is_file() or not IGNORE_RE.match(entry.name):
-                continue
-            try:
-                text = entry.read_text(encoding="utf-8", errors="replace")
-                spec = _pathspec.PathSpec.from_lines("gitwildmatch", text.splitlines())
-                self._specs.append((directory, spec))
-                self.discovered.append((entry, entry.name))
-                added += 1
-            except Exception:
-                pass
-        return added
-
-    def pop(self, count: int) -> None:
-        """Remove the last `count` specs from the stack."""
-        if count > 0:
-            del self._specs[-count:]
-
-    def is_ignored(self, entry: Path, is_dir: bool = False) -> bool:
-        """Check if a path matches any accumulated ignore pattern."""
-        for base_dir, spec in self._specs:
-            try:
-                rel_str = entry.relative_to(base_dir).as_posix()
-            except ValueError:
-                continue
-            if is_dir:
-                rel_str += "/"
-            if spec.match_file(rel_str):
-                return True
-        return False
+@dataclass(frozen=True)
+class PruneCandidate:
+    node: DirNode
+    depth: int
+    relative_path: str
+    savings: int
+    tier: int
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _human_size(b: int) -> str:
-    for unit, divisor in [("TB", 1 << 40), ("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)]:
-        if b >= divisor:
+def _human_size(byte_count: int) -> str:
+    for unit, divisor in [
+        ("TB", 1 << 40),
+        ("GB", 1 << 30),
+        ("MB", 1 << 20),
+        ("KB", 1 << 10),
+    ]:
+        if byte_count >= divisor:
             if unit in ("TB", "GB"):
-                return f"{b / divisor:.2f} {unit}"
-            return f"{b // divisor} {unit}"
-    return f"{b} bytes"
+                return f"{byte_count / divisor:.2f} {unit}"
+            return f"{byte_count // divisor} {unit}"
+    return f"{byte_count} bytes"
 
 
 def _root_display_name(target: Path) -> str:
@@ -287,46 +505,123 @@ def _stat_file(path: Path) -> int:
 
 
 def _direct_entry_count(path: Path) -> int:
-    """One-level count for a directory that will not be descended into."""
     try:
-        with os.scandir(path) as it:
-            return sum(1 for _ in it)
+        with os.scandir(path) as iterator:
+            return sum(1 for _ in iterator)
     except OSError:
         return -1
 
 
-def _skip_reason(
-    entry: Path,
-    is_dir: bool,
-    is_link: bool,
-    config: Config,
-    ignore_filter: Optional[IgnoreFilter],
-    at_root: bool,
-) -> str:
-    """"" to include, "self" to drop silently, otherwise a display reason."""
-    if at_root and config.is_own_artefact(entry):
-        return "self"
-    if not config.show_hidden and entry.name.startswith("."):
-        return "hidden"
-    if ignore_filter and ignore_filter.is_ignored(entry, is_dir=is_dir):
-        return "ignored"
-    if is_dir and is_link:
-        return "symlink"
-    if is_dir and config.is_collapsed(entry.name):
-        return "not expanded"
+def _normalised_realpath(path: Path) -> str:
+    try:
+        resolved = os.path.realpath(os.fspath(path))
+    except OSError:
+        resolved = os.path.abspath(os.fspath(path))
+    return os.path.normcase(os.path.normpath(resolved))
+
+
+def _directory_inode(path: Path) -> Optional[tuple[int, int]]:
+    try:
+        result = path.stat()
+    except OSError:
+        return None
+    inode = int(getattr(result, "st_ino", 0) or 0)
+    device = int(getattr(result, "st_dev", 0) or 0)
+    if inode == 0:
+        return None
+    return device, inode
+
+
+def _is_directory_link(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+    except OSError:
+        return False
+
+    if os.name != "nt":
+        return False
+
+    try:
+        attributes = int(getattr(path.lstat(), "st_file_attributes", 0) or 0)
+    except OSError:
+        return False
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400))
+    return bool(attributes & reparse_flag)
+
+
+def _classify(entries: Iterable[Path]) -> list[EntryInfo]:
+    classified: list[EntryInfo] = []
+    for entry in entries:
+        try:
+            is_dir = entry.is_dir()
+            is_link = _is_directory_link(entry) if is_dir else entry.is_symlink()
+        except OSError:
+            continue
+        classified.append(EntryInfo(entry, is_dir, is_link))
+    classified.sort(key=lambda item: (not item.is_dir, item.path.name.casefold()))
+    return classified
+
+
+def _file_extension(name: str) -> str:
+    lower = name.casefold()
+    for compound in (".db-shm", ".db-wal", ".tar.gz", ".tar.xz", ".tar.bz2"):
+        if lower.endswith(compound):
+            return compound
+    return Path(lower).suffix
+
+
+def _file_category(name: str) -> str:
+    extension = _file_extension(name)
+    for category, extensions in BULK_EXTENSION_CATEGORIES.items():
+        if extension in extensions:
+            return category
     return ""
 
 
-def _classify(entries: list[Path]) -> list[tuple[Path, bool, bool]]:
-    """Resolve is_dir/is_symlink once per entry, then sort dirs first."""
-    out: list[tuple[Path, bool, bool]] = []
-    for entry in entries:
-        try:
-            out.append((entry, entry.is_dir(), entry.is_symlink()))
-        except OSError:
-            continue
-    out.sort(key=lambda t: (not t[1], t[0].name.lower()))
-    return out
+def _file_priority(name: str, category: str) -> int:
+    lower = name.casefold()
+    extension = _file_extension(lower)
+
+    if (
+        lower in SPECIAL_FILENAMES
+        or lower.startswith("readme")
+        or lower.startswith("license")
+        or lower.startswith("changelog")
+        or lower.startswith("requirements")
+        or lower.startswith(".env")
+    ):
+        return 3
+    if extension in STRUCTURAL_EXTENSIONS:
+        return 2
+    if not category:
+        return 1
+    return 0
+
+
+def _representative_sample(items: Sequence[T], limit: int) -> list[T]:
+    """Return deterministic head-and-tail examples while preserving order."""
+    if limit <= 0:
+        return []
+    if len(items) <= limit:
+        return list(items)
+    head_count = (limit + 1) // 2
+    tail_count = limit - head_count
+    if tail_count == 0:
+        return list(items[:head_count])
+    return [*items[:head_count], *items[-tail_count:]]
+
+
+def _plural(count: int, singular: str, plural: Optional[str] = None) -> str:
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _relative_display(path: Path, target: Path) -> str:
+    try:
+        relative = path.relative_to(target)
+        return relative.as_posix() or "."
+    except ValueError:
+        return path.as_posix()
 
 
 def _copy_text_to_clipboard(text: str) -> None:
@@ -344,9 +639,18 @@ def _copy_text_to_clipboard(text: str) -> None:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
     user32.CreateWindowExW.argtypes = [
-        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
-        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.HWND,
+        wintypes.HMENU,
+        wintypes.HINSTANCE,
+        wintypes.LPVOID,
     ]
     user32.CreateWindowExW.restype = wintypes.HWND
     user32.DestroyWindow.argtypes = [wintypes.HWND]
@@ -370,8 +674,18 @@ def _copy_text_to_clipboard(text: str) -> None:
     kernel32.GlobalFree.restype = wintypes.HANDLE
 
     owner = user32.CreateWindowExW(
-        0, "STATIC", "dir_tree clipboard owner", 0,
-        0, 0, 0, 0, None, None, None, None,
+        0,
+        "STATIC",
+        "dir_tree clipboard owner",
+        0,
+        0,
+        0,
+        0,
+        0,
+        None,
+        None,
+        None,
+        None,
     )
     if not owner:
         raise ctypes.WinError(ctypes.get_last_error())
@@ -407,7 +721,6 @@ def _copy_text_to_clipboard(text: str) -> None:
         if not user32.SetClipboardData(cf_unicode_text, memory):
             raise ctypes.WinError(ctypes.get_last_error())
 
-        # Clipboard ownership of the allocated memory transfers to Windows.
         memory = None
     finally:
         if clipboard_open:
@@ -418,11 +731,16 @@ def _copy_text_to_clipboard(text: str) -> None:
 
 
 def _show_clipboard_error(message: str) -> None:
-    """Show an error only when running as a windowless context-menu command."""
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, message, "Copy directory tree", 0x10)
+
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                message,
+                "Copy directory tree",
+                0x10,
+            )
             return
         except Exception:
             pass
@@ -433,22 +751,25 @@ def _show_clipboard_error(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Console chrome - polished terminal output using box-drawing characters
+# Console chrome
 # ---------------------------------------------------------------------------
 
 def _enable_ansi() -> bool:
-    """Try to enable VT processing on Windows. Returns True if ANSI is usable."""
     if sys.platform != "win32":
         return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
     try:
         import ctypes
-        k32 = ctypes.windll.kernel32
-        STD_OUTPUT_HANDLE = -11
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-        handle = k32.GetStdHandle(STD_OUTPUT_HANDLE)
+
+        kernel32 = ctypes.windll.kernel32
+        std_output_handle = -11
+        enable_virtual_terminal_processing = 0x0004
+        handle = kernel32.GetStdHandle(std_output_handle)
         mode = ctypes.c_ulong()
-        if k32.GetConsoleMode(handle, ctypes.byref(mode)):
-            k32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            kernel32.SetConsoleMode(
+                handle,
+                mode.value | enable_virtual_terminal_processing,
+            )
             return True
     except Exception:
         pass
@@ -456,38 +777,41 @@ def _enable_ansi() -> bool:
 
 
 _ANSI = _enable_ansi()
-
 SPINNER = ["\u2838", "\u2834", "\u2826", "\u2807", "\u280b", "\u2819", "\u2830", "\u2838"]
 
 if _ANSI:
-    DIM    = "\033[2m"
-    BOLD   = "\033[1m"
-    RESET  = "\033[0m"
-    CYAN   = "\033[36m"
-    GREEN  = "\033[32m"
-    YELLOW = "\033[33m"
-    RED    = "\033[31m"
-    WHITE  = "\033[37m"
+    DIM = "\033[2m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+    CYAN = "\033[36m"
+    GREEN = "\033[32m"
+    RED = "\033[31m"
 else:
-    DIM = BOLD = RESET = CYAN = GREEN = YELLOW = RED = WHITE = ""
+    DIM = BOLD = RESET = CYAN = GREEN = RED = ""
 
 
-_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+def _strip_ansi(value: str) -> str:
+    result = value
+    while "\033[" in result:
+        start = result.find("\033[")
+        end = result.find("m", start)
+        if end == -1:
+            break
+        result = result[:start] + result[end + 1:]
+    return result
 
 
-def _visible_len(s: str) -> int:
-    """Length of a string excluding ANSI escape sequences."""
-    return len(_ANSI_RE.sub("", s))
+def _visible_len(value: str) -> int:
+    return len(_strip_ansi(value))
 
 
 def _con_box(lines: list[str], *, colour: str = CYAN) -> None:
-    """Print lines inside a rounded box with optional colour."""
     width = max(_visible_len(line) for line in lines) + 2
     bar = DASH * width
     print(f"  {colour}{BOX_TL}{bar}{BOX_TR}{RESET}")
     for line in lines:
-        pad = width - 1 - _visible_len(line)
-        print(f"  {colour}{PIPE}{RESET} {line}{' ' * pad}{colour}{PIPE}{RESET}")
+        padding = width - 1 - _visible_len(line)
+        print(f"  {colour}{PIPE}{RESET} {line}{' ' * padding}{colour}{PIPE}{RESET}")
     print(f"  {colour}{BOX_BL}{bar}{BOX_BR}{RESET}")
 
 
@@ -496,176 +820,509 @@ def _con_divider(width: int = 48) -> None:
 
 
 def _con_kv(key: str, value: str) -> None:
-    print(f"  {DIM}{key:<10}{RESET} {value}")
+    print(f"  {DIM}{key:<12}{RESET} {value}")
 
 
-def _con_prompt(label: str, options: str) -> str:
-    return input(f"  {YELLOW}{PIPE}{RESET} {label} {DIM}{options}{RESET} ").strip().lower()
+def _con_warn(message: str) -> None:
+    print(f"\n  {RED}{PIPE}{RESET} {message}")
 
 
-def _con_warn(msg: str) -> None:
-    print(f"\n  {RED}{PIPE}{RESET} {msg}")
-
-
-def _con_ok(msg: str) -> None:
-    print(f"  {GREEN}{PIPE}{RESET} {msg}")
+def _con_ok(message: str) -> None:
+    print(f"  {GREEN}{PIPE}{RESET} {message}")
 
 
 # ---------------------------------------------------------------------------
-# Scan phase - builds a tree of DirNode/FileNode, accumulates Stats
+# Local selection policy
+# ---------------------------------------------------------------------------
+
+def _select_directory_nodes(
+    directories: list[DirNode],
+    config: Config,
+) -> tuple[list[DirNode], list[DirNode]]:
+    if (
+        not config.bounded
+        or len(directories) <= config.max_directories_per_directory
+    ):
+        return directories, []
+
+    limit = config.max_directories_per_directory
+    prioritised = [
+        node
+        for node in directories
+        if node.name.startswith(".")
+        or node.name.casefold() in PRIORITY_DIRECTORY_NAMES
+        or node.name.casefold() in config.collapsed_names
+    ]
+    ordinary = [node for node in directories if node not in prioritised]
+
+    if len(prioritised) >= limit:
+        selected = _representative_sample(prioritised, limit)
+    else:
+        selected = [
+            *prioritised,
+            *_representative_sample(ordinary, limit - len(prioritised)),
+        ]
+
+    selected_ids = {id(node) for node in selected}
+    unlisted = [node for node in directories if id(node) not in selected_ids]
+    selected.sort(key=lambda node: node.name.casefold())
+    return selected, unlisted
+
+
+def _update_layout_digest(digest: Any, node: DirNode) -> None:
+    def add(value: object) -> None:
+        digest.update(str(value).encode("utf-8", errors="surrogatepass"))
+        digest.update(b"\0")
+
+    add(node.error)
+    add(node.note)
+    add(node.entry_count)
+    add(node.direct_folder_total)
+    add(node.direct_file_total)
+    add(node.trimmed_folder_total)
+    add(node.trimmed_file_total)
+
+    for file in node.files:
+        add("file")
+        add(file.name.casefold())
+    for note in node.dir_notes:
+        add("dir-note")
+        add(note.label.casefold())
+    for note in node.file_notes:
+        add("file-note")
+        add(note.label.casefold())
+    for child in node.dirs:
+        add("dir")
+        add(child.name.casefold())
+        _update_layout_digest(digest, child)
+
+
+def _bulk_only_categories(node: DirNode) -> Optional[frozenset[str]]:
+    if node.note or node.error:
+        return None
+
+    categories: set[str] = set()
+    for file in node.files:
+        if file.category not in REPETITIVE_BULK_CATEGORIES:
+            return None
+        categories.add(file.category)
+
+    for child in node.dirs:
+        child_categories = _bulk_only_categories(child)
+        if child_categories is None:
+            return None
+        categories.update(child_categories)
+
+    if not categories:
+        return None
+    return frozenset(categories)
+
+
+def _directory_layout_fingerprint(node: DirNode) -> Optional[bytes]:
+    if node.note or node.error:
+        return None
+    if _render_line_count(node, depth=2) < MIN_IDENTICAL_SUBTREE_LINES:
+        return None
+
+    bulk_categories = _bulk_only_categories(node)
+    if bulk_categories is not None:
+        profile = "bulk-only:" + ",".join(sorted(bulk_categories))
+        return hashlib.blake2b(
+            profile.encode("ascii"),
+            digest_size=20,
+        ).digest()
+
+    digest = hashlib.blake2b(digest_size=20)
+    _update_layout_digest(digest, node)
+    return digest.digest()
+
+
+def _compress_identical_siblings(
+    directories: list[DirNode],
+    config: Config,
+    stats: Stats,
+) -> None:
+    if not config.bounded:
+        return
+
+    groups: dict[bytes, list[DirNode]] = {}
+    for node in directories:
+        fingerprint = _directory_layout_fingerprint(node)
+        if fingerprint is not None:
+            groups.setdefault(fingerprint, []).append(node)
+
+    for group in groups.values():
+        if len(group) < MIN_IDENTICAL_SIBLING_GROUP:
+            continue
+        expanded = _representative_sample(
+            group,
+            MAX_EXPANDED_IDENTICAL_SIBLINGS,
+        )
+        expanded_ids = {id(node) for node in expanded}
+        for node in group:
+            if id(node) in expanded_ids:
+                continue
+            folder_count, file_count = _known_descendant_counts(node)
+            node.note = "repetitive contents not expanded"
+            node.trimmed_folder_total = folder_count
+            node.trimmed_file_total = file_count
+            stats.collapsed += 1
+            stats.repetitive_collapsed += 1
+
+
+def _choose_with_priority(files: list[FileNode], limit: int) -> list[FileNode]:
+    if len(files) <= limit:
+        return files
+
+    selected: list[FileNode] = []
+    remaining = limit
+    for priority in (3, 2, 1, 0):
+        if remaining <= 0:
+            break
+        group = [item for item in files if item.priority == priority]
+        chosen = _representative_sample(group, remaining)
+        selected.extend(chosen)
+        remaining -= len(chosen)
+
+    selected.sort(key=lambda item: item.name.casefold())
+    return selected
+
+
+def _select_files(
+    files: list[FileNode],
+    config: Config,
+) -> tuple[list[FileNode], list[SummaryNode], int]:
+    if not config.bounded:
+        return files, [], 0
+
+    omitted = Counter()
+    candidates: list[FileNode] = []
+    categories = sorted({item.category for item in files if item.category})
+
+    bulk_names: set[str] = set()
+    for category in categories:
+        group = [item for item in files if item.category == category]
+        if len(group) <= config.max_bulk_files_per_category:
+            chosen = group
+        else:
+            important = [item for item in group if item.priority >= 3]
+            ordinary = [item for item in group if item.priority < 3]
+            if len(important) >= config.max_bulk_files_per_category:
+                chosen = _representative_sample(
+                    important,
+                    config.max_bulk_files_per_category,
+                )
+            else:
+                chosen = [
+                    *important,
+                    *_representative_sample(
+                        ordinary,
+                        config.max_bulk_files_per_category - len(important),
+                    ),
+                ]
+            omitted[category] += len(group) - len(chosen)
+        candidates.extend(chosen)
+        bulk_names.update(item.name for item in group)
+
+    candidates.extend(item for item in files if item.name not in bulk_names)
+    candidates.sort(key=lambda item: item.name.casefold())
+
+    if len(candidates) > config.max_files_per_directory:
+        selected = _choose_with_priority(candidates, config.max_files_per_directory)
+        selected_names = {item.name for item in selected}
+        for item in candidates:
+            if item.name in selected_names:
+                continue
+            omitted[item.category or "file"] += 1
+    else:
+        selected = candidates
+
+    notes: list[SummaryNode] = []
+    category_order = [
+        "image",
+        "video",
+        "audio",
+        "font",
+        "document",
+        "archive",
+        "database",
+        "dataset",
+        "model",
+        "binary",
+        "log",
+        "file",
+    ]
+    for category in category_order:
+        count = omitted.get(category, 0)
+        if not count:
+            continue
+        if category == "file":
+            notes.append(SummaryNode(f"[{count:,} more {_plural(count, 'file')}]"))
+        else:
+            notes.append(
+                SummaryNode(
+                    f"[{count:,} more {category} {_plural(count, 'file')}]"
+                )
+            )
+
+    total_omitted = sum(omitted.values())
+    return selected, notes, total_omitted
+
+
+# ---------------------------------------------------------------------------
+# Scan phase
 # ---------------------------------------------------------------------------
 
 def scan(
     directory: Path,
     config: Config,
     stats: Stats,
+    context: ScanContext,
     depth: int = 1,
     on_progress: Optional[ProgressFn] = None,
-    on_truncate: Optional[TruncateFn] = None,
-    ignore_filter: Optional[IgnoreFilter] = None,
 ) -> DirNode:
     stats.dirs_scanned += 1
     if on_progress:
         on_progress(stats.dirs_scanned, directory.name)
 
-    node = DirNode(name=directory.name or _root_display_name(directory), path=directory)
+    node = DirNode(
+        name=directory.name or _root_display_name(directory),
+        path=directory,
+    )
 
     try:
-        raw = list(directory.iterdir())
+        raw_entries = list(directory.iterdir())
     except OSError:
         node.error = "permission denied"
-        return node
-
-    # Discover ignore files from this directory's entries (push)
-    ignore_added = 0
-    if ignore_filter:
-        ignore_added = ignore_filter.collect(directory, raw)
-
-    if len(raw) > TRUNCATE_THRESHOLD and on_truncate and on_truncate(directory, len(raw)):
-        node.truncated_count = len(raw)
-        if ignore_filter:
-            ignore_filter.pop(ignore_added)
         return node
 
     at_root = depth == 1
+    visible_dirs: list[EntryInfo] = []
+    visible_files: list[FileNode] = []
+    hidden_dirs = 0
+    hidden_files = 0
 
-    for entry, is_dir, is_link in _classify(raw):
-        reason = _skip_reason(entry, is_dir, is_link, config, ignore_filter, at_root)
-
-        if reason == "self":
+    for entry in _classify(raw_entries):
+        if at_root and config.is_own_artefact(entry.path):
             continue
 
-        if not is_dir:
-            if reason:
-                if reason == "hidden":
-                    node.hidden_files += 1
-                else:
-                    node.ignored_files += 1
-                stats.skipped_files += 1
-                continue
-            stats.files += 1
-            size = _stat_file(entry)
-            stats.total_bytes += size
-            node.files.append(FileNode(entry.name, size))
+        if not config.show_hidden and entry.path.name.startswith("."):
+            if entry.is_dir:
+                hidden_dirs += 1
+                stats.folders += 1
+                stats.unlisted_dirs += 1
+            else:
+                hidden_files += 1
+                stats.files += 1
+                stats.total_bytes += _stat_file(entry.path)
+                stats.unlisted_files += 1
             continue
 
-        stats.folders += 1
-
-        if reason:
-            stats.collapsed += 1
-            node.dirs.append(DirNode(
-                name=entry.name,
-                path=entry,
-                note=reason,
-                entry_count=-1 if is_link else _direct_entry_count(entry),
-            ))
+        if entry.is_dir:
+            stats.folders += 1
+            visible_dirs.append(entry)
             continue
 
-        beyond_limit = config.max_depth > 0 and depth >= config.max_depth
-        child = (
-            _scan_shallow(entry, config, stats, ignore_filter)
-            if beyond_limit
-            else scan(entry, config, stats, depth + 1, on_progress, on_truncate, ignore_filter)
+        size = _stat_file(entry.path)
+        category = _file_category(entry.path.name)
+        visible_files.append(
+            FileNode(
+                name=entry.path.name,
+                size=size,
+                category=category,
+                priority=_file_priority(entry.path.name, category),
+            )
         )
-        node.dirs.append(child)
+        stats.files += 1
+        stats.total_bytes += size
 
-    # Pop ignore specs added by this directory
-    if ignore_filter:
-        ignore_filter.pop(ignore_added)
+    node.direct_folder_total = len(visible_dirs)
+    node.direct_file_total = len(visible_files)
+    node.direct_file_bytes = sum(item.size for item in visible_files)
 
-    return node
+    if hidden_dirs:
+        node.dir_notes.append(
+            SummaryNode(
+                f"[{hidden_dirs:,} hidden {_plural(hidden_dirs, 'folder')} not listed]"
+            )
+        )
 
+    selected_files, file_notes, unlisted_file_count = _select_files(
+        visible_files,
+        config,
+    )
+    node.files.extend(selected_files)
+    node.file_notes.extend(file_notes)
+    if unlisted_file_count:
+        stats.unlisted_files += unlisted_file_count
 
-def _scan_shallow(
-    directory: Path,
-    config: Config,
-    stats: Stats,
-    ignore_filter: Optional[IgnoreFilter] = None,
-) -> DirNode:
-    """Single-level enumeration for depth-limited directories."""
-    node = DirNode(name=directory.name, path=directory)
-    try:
-        raw = list(directory.iterdir())
-    except OSError:
-        node.error = "permission denied"
-        return node
+    if hidden_files:
+        node.file_notes.append(
+            SummaryNode(
+                f"[{hidden_files:,} hidden {_plural(hidden_files, 'file')} not listed]"
+            )
+        )
 
-    ignore_added = ignore_filter.collect(directory, raw) if ignore_filter else 0
-
-    for entry, is_dir, is_link in _classify(raw):
-        reason = _skip_reason(entry, is_dir, is_link, config, ignore_filter, False)
-
-        if reason == "self":
+    scanned_dirs: list[DirNode] = []
+    for entry in visible_dirs:
+        if entry.is_link:
+            stats.collapsed += 1
+            scanned_dirs.append(
+                DirNode(
+                    name=entry.path.name,
+                    path=entry.path,
+                    note="link not followed",
+                    entry_count=_direct_entry_count(entry.path),
+                )
+            )
             continue
 
-        if not is_dir:
-            if reason:
-                if reason == "hidden":
-                    node.hidden_files += 1
-                else:
-                    node.ignored_files += 1
-                stats.skipped_files += 1
-                continue
-            stats.files += 1
-            size = _stat_file(entry)
-            stats.total_bytes += size
-            node.files.append(FileNode(entry.name, size))
+        if config.is_collapsed(entry.path):
+            stats.collapsed += 1
+            scanned_dirs.append(
+                DirNode(
+                    name=entry.path.name,
+                    path=entry.path,
+                    note="not expanded",
+                    entry_count=_direct_entry_count(entry.path),
+                )
+            )
             continue
 
-        stats.folders += 1
-        child = DirNode(name=entry.name, path=entry, note=reason or "depth limit")
-        stats.collapsed += 1
-        child.entry_count = -1 if is_link else _direct_entry_count(entry)
-        node.dirs.append(child)
+        if config.max_depth > 0 and depth >= config.max_depth:
+            stats.collapsed += 1
+            scanned_dirs.append(
+                DirNode(
+                    name=entry.path.name,
+                    path=entry.path,
+                    note="depth limit",
+                    entry_count=_direct_entry_count(entry.path),
+                )
+            )
+            continue
 
-    if ignore_filter:
-        ignore_filter.pop(ignore_added)
+        display_path = _relative_display(entry.path, config.target)
+        duplicate_of = context.register(entry.path, display_path)
+        if duplicate_of is not None:
+            stats.collapsed += 1
+            scanned_dirs.append(
+                DirNode(
+                    name=entry.path.name,
+                    path=entry.path,
+                    note=f"same directory as {duplicate_of}",
+                    entry_count=_direct_entry_count(entry.path),
+                )
+            )
+            continue
+
+        scanned_dirs.append(
+            scan(
+                entry.path,
+                config,
+                stats,
+                context,
+                depth + 1,
+                on_progress,
+            )
+        )
+
+    selected_dirs, unlisted_dirs = _select_directory_nodes(scanned_dirs, config)
+    _compress_identical_siblings(selected_dirs, config, stats)
+    node.dirs.extend(selected_dirs)
+    if unlisted_dirs:
+        stats.unlisted_dirs += len(unlisted_dirs)
+        unlisted_file_total = sum(
+            _known_descendant_counts(child)[1] for child in unlisted_dirs
+        )
+        detail = (
+            f"; {unlisted_file_total:,} "
+            f"{_plural(unlisted_file_total, 'file')} beneath them"
+            if unlisted_file_total
+            else ""
+        )
+        node.dir_notes.append(
+            SummaryNode(
+                f"[{len(unlisted_dirs):,} more child "
+                f"{_plural(len(unlisted_dirs), 'folder')} not expanded{detail}]"
+            )
+        )
 
     return node
 
 
 # ---------------------------------------------------------------------------
-# Render phase - transforms a DirNode tree into formatted text lines
+# Render and global line-budget policy
 # ---------------------------------------------------------------------------
 
 def _annotation(node: DirNode) -> str:
     if node.note:
+        if node.trimmed_folder_total or node.trimmed_file_total:
+            parts: list[str] = [node.note]
+            if node.trimmed_folder_total:
+                parts.append(
+                    f"{node.trimmed_folder_total:,} "
+                    f"{_plural(node.trimmed_folder_total, 'folder')}"
+                )
+            if node.trimmed_file_total:
+                parts.append(
+                    f"{node.trimmed_file_total:,} "
+                    f"{_plural(node.trimmed_file_total, 'file')}"
+                )
+            return f"  [{', '.join(parts)}]"
         if node.entry_count >= 0:
-            unit = "entry" if node.entry_count == 1 else "entries"
-            return f"  [{node.note}, {node.entry_count} {unit}]"
+            return (
+                f"  [{node.note}, {node.entry_count:,} "
+                f"{_plural(node.entry_count, 'entry', 'entries')}]"
+            )
         return f"  [{node.note}]"
 
     parts: list[str] = []
-    fc = node.direct_folder_count
-    fi = node.direct_file_count
-    sb = node.direct_file_bytes
-    if fc:
-        parts.append(f"{fc} folder{'s' if fc != 1 else ''}")
-    if fi:
-        parts.append(f"{fi} file{'s' if fi != 1 else ''}")
-    if sb:
-        parts.append(_human_size(sb))
+    if node.direct_folder_total:
+        parts.append(
+            f"{node.direct_folder_total:,} "
+            f"{_plural(node.direct_folder_total, 'folder')}"
+        )
+    if node.direct_file_total:
+        parts.append(
+            f"{node.direct_file_total:,} "
+            f"{_plural(node.direct_file_total, 'file')}"
+        )
+    if node.direct_file_bytes:
+        parts.append(_human_size(node.direct_file_bytes))
     return f"  ({', '.join(parts)})" if parts else ""
+
+
+def _render_line_count(node: DirNode, depth: int = 1) -> int:
+    if node.error:
+        return 1
+
+    children: list[DirNode | FileNode | SummaryNode] = [
+        *node.dirs,
+        *node.dir_notes,
+        *node.files,
+        *node.file_notes,
+    ]
+    count = len(children)
+    breathe = (
+        depth <= BREATHE_MAX_DEPTH
+        and node.direct_folder_total >= BREATHE_MIN_DIRS
+    )
+    previous_was_dir = False
+
+    if breathe and node.dirs:
+        count += 1
+
+    for child in children:
+        if breathe and previous_was_dir:
+            count += 1
+        if isinstance(child, DirNode):
+            if not child.note:
+                count += _render_line_count(child, depth + 1)
+            previous_was_dir = True
+        else:
+            previous_was_dir = False
+
+    return count
 
 
 def render_tree(node: DirNode, prefix: str = "", depth: int = 1) -> list[str]:
@@ -675,46 +1332,184 @@ def render_tree(node: DirNode, prefix: str = "", depth: int = 1) -> list[str]:
         lines.append(f"{prefix}{TEE}{DASH}{DASH} [{node.error}]")
         return lines
 
-    if node.truncated_count:
-        lines.append(f"{prefix}{TEE}{DASH}{DASH} [{node.truncated_count} entries]")
-        return lines
+    children: list[DirNode | FileNode | SummaryNode] = [
+        *node.dirs,
+        *node.dir_notes,
+        *node.files,
+        *node.file_notes,
+    ]
+    breathe = (
+        depth <= BREATHE_MAX_DEPTH
+        and node.direct_folder_total >= BREATHE_MIN_DIRS
+    )
+    previous_was_dir = False
 
-    children: list[DirNode | FileNode | SkipNote] = [*node.dirs, *node.files]
-    if node.hidden_files or node.ignored_files:
-        children.append(SkipNote(node.hidden_files, node.ignored_files))
-    breathe = depth <= BREATHE_MAX_DEPTH and node.direct_folder_count >= BREATHE_MIN_DIRS
-    prev_was_dir = False
-
-    # Separator between this folder's header and its first child
     if breathe and node.dirs:
         lines.append(f"{prefix}{PIPE}" if prefix else PIPE)
 
-    for i, child in enumerate(children):
-        is_last = i == len(children) - 1
+    for index, child in enumerate(children):
+        is_last = index == len(children) - 1
         connector = f"{ELBOW}{DASH}{DASH} " if is_last else f"{TEE}{DASH}{DASH} "
         extension = "    " if is_last else f"{PIPE}   "
 
-        if breathe and prev_was_dir:
+        if breathe and previous_was_dir:
             lines.append(f"{prefix}{PIPE}" if prefix else PIPE)
 
         if isinstance(child, DirNode):
-            lines.append(f"{prefix}{connector}{FOLDER} {child.name}/{_annotation(child)}")
+            lines.append(
+                f"{prefix}{connector}{FOLDER} {child.name}/{_annotation(child)}"
+            )
             if not child.note:
                 lines.extend(render_tree(child, prefix + extension, depth + 1))
-            prev_was_dir = True
-        elif isinstance(child, SkipNote):
-            lines.append(f"{prefix}{connector}{child.label()}")
-            prev_was_dir = False
-        else:
+            previous_was_dir = True
+        elif isinstance(child, FileNode):
             lines.append(f"{prefix}{connector}{child.name}")
-            prev_was_dir = False
+            previous_was_dir = False
+        else:
+            lines.append(f"{prefix}{connector}{child.label}")
+            previous_was_dir = False
 
     return lines
 
 
-# ---------------------------------------------------------------------------
-# Header / footer / document assembly
-# ---------------------------------------------------------------------------
+def _visible_file_count(node: DirNode) -> int:
+    count = len(node.files)
+    for child in node.dirs:
+        if not child.note:
+            count += _visible_file_count(child)
+    return count
+
+
+def _visible_collapsed_counts(node: DirNode) -> tuple[int, int, int]:
+    collapsed = 0
+    repetitive = 0
+    budget = 0
+    for child in node.dirs:
+        if child.note:
+            collapsed += 1
+            if child.note == "repetitive contents not expanded":
+                repetitive += 1
+            elif child.note == "trimmed to line limit":
+                budget += 1
+        else:
+            child_collapsed, child_repetitive, child_budget = (
+                _visible_collapsed_counts(child)
+            )
+            collapsed += child_collapsed
+            repetitive += child_repetitive
+            budget += child_budget
+    return collapsed, repetitive, budget
+
+
+def _reconcile_output_stats(root: DirNode, stats: Stats) -> None:
+    stats.unlisted_files = max(0, stats.files - _visible_file_count(root))
+    collapsed, repetitive, budget = _visible_collapsed_counts(root)
+    stats.collapsed = collapsed
+    stats.repetitive_collapsed = repetitive
+    stats.budget_collapsed = budget
+
+
+def _known_descendant_counts(node: DirNode) -> tuple[int, int]:
+    folder_count = node.direct_folder_total
+    file_count = node.direct_file_total
+    for child in node.dirs:
+        if child.note:
+            if child.trimmed_folder_total or child.trimmed_file_total:
+                folder_count += child.trimmed_folder_total
+                file_count += child.trimmed_file_total
+            continue
+        child_folders, child_files = _known_descendant_counts(child)
+        folder_count += child_folders
+        file_count += child_files
+    return folder_count, file_count
+
+
+def _candidate_tier(node: DirNode, depth: int, path_parts: tuple[str, ...]) -> int:
+    lowered_parts = tuple(part.casefold() for part in path_parts)
+    low_value = any(part in LOW_VALUE_DIRECTORY_HINTS for part in lowered_parts)
+    protected = node.name.casefold() in GLOBAL_PROTECTED_DIRECTORY_NAMES
+
+    if low_value and depth >= 2:
+        return 0
+    if low_value and depth == 1:
+        return 1
+    if not protected and depth >= 4:
+        return 2
+    if not protected and depth == 3:
+        return 3
+    if not protected and depth == 2:
+        return 4
+    if protected and depth >= 4:
+        return 5
+    if protected and depth == 3:
+        return 6
+    if protected and depth == 2:
+        return 7
+    if not protected and depth == 1:
+        return 8
+    return 9
+
+
+def _collect_prune_candidates(
+    node: DirNode,
+    depth: int = 0,
+    path_parts: tuple[str, ...] = (),
+) -> list[PruneCandidate]:
+    candidates: list[PruneCandidate] = []
+    for child in node.dirs:
+        child_depth = depth + 1
+        child_parts = (*path_parts, child.name)
+        if child.note or child.error:
+            continue
+
+        savings = _render_line_count(child, depth=child_depth + 1)
+        if savings > 0:
+            relative_path = "/".join(child_parts)
+            candidates.append(
+                PruneCandidate(
+                    node=child,
+                    depth=child_depth,
+                    relative_path=relative_path,
+                    savings=savings,
+                    tier=_candidate_tier(child, child_depth, child_parts),
+                )
+            )
+
+        candidates.extend(
+            _collect_prune_candidates(child, child_depth, child_parts)
+        )
+    return candidates
+
+
+def _enforce_global_budget(root: DirNode, config: Config, stats: Stats) -> None:
+    if not config.bounded:
+        return
+
+    # Code fence, six header rows, blank lines, root line, and closing fence.
+    fixed_document_overhead = 11
+    target_tree_lines = max(1, config.max_document_lines - fixed_document_overhead)
+
+    while _render_line_count(root) > target_tree_lines:
+        candidates = _collect_prune_candidates(root)
+        if not candidates:
+            break
+
+        candidates.sort(
+            key=lambda candidate: (
+                candidate.tier,
+                -candidate.savings,
+                -candidate.depth,
+                candidate.relative_path.casefold(),
+            )
+        )
+        chosen = candidates[0]
+        folder_count, file_count = _known_descendant_counts(chosen.node)
+        chosen.node.note = "trimmed to line limit"
+        chosen.node.trimmed_folder_total = folder_count
+        chosen.node.trimmed_file_total = file_count
+        stats.collapsed += 1
+        stats.budget_collapsed += 1
+
 
 def render_header(
     folder_name: str,
@@ -725,10 +1520,10 @@ def render_header(
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     line1 = f"  {folder_name}"
     line2 = "  " + str(target).replace("\\", "/")
-    meta = [f"Scanned: {now}", f"Took: {elapsed:.2f}s"]
+    metadata = [f"Scanned: {now}", f"Took: {elapsed:.2f}s"]
     if max_depth:
-        meta.append(f"Depth: {max_depth}")
-    line3 = f"  {'  |  '.join(meta)}"
+        metadata.append(f"Depth: {max_depth}")
+    line3 = f"  {'  |  '.join(metadata)}"
     width = max(len(line1), len(line2), len(line3)) + 4
     bar = DASH * width
     return [
@@ -752,17 +1547,32 @@ def assemble_document(
     header = render_header(folder_name, target, config.max_depth, elapsed)
     extras: list[str] = []
     if stats.collapsed:
-        extras.append(f"{stats.collapsed} not expanded")
-    if stats.skipped_files:
-        extras.append(f"{stats.skipped_files} not listed")
+        extras.append(
+            f"{stats.collapsed:,} {_plural(stats.collapsed, 'folder')} not expanded"
+        )
+    if stats.unlisted_dirs:
+        extras.append(
+            f"{stats.unlisted_dirs:,} {_plural(stats.unlisted_dirs, 'folder')} not listed"
+        )
+    if stats.unlisted_files:
+        extras.append(
+            f"{stats.unlisted_files:,} {_plural(stats.unlisted_files, 'file')} not listed"
+        )
     suffix = f"; {', '.join(extras)}" if extras else ""
-    folder_unit = "folder" if stats.folders == 1 else "folders"
-    file_unit = "file" if stats.files == 1 else "files"
     root_annotation = (
-        f"  (Total: {stats.folders} {folder_unit}, {stats.files} {file_unit}, "
+        f"  (Total: {stats.folders:,} {_plural(stats.folders, 'folder')}, "
+        f"{stats.files:,} {_plural(stats.files, 'file')}, "
         f"{_human_size(stats.total_bytes)}{suffix})"
     )
-    parts = ["```", *header, "", f"{FOLDER} {folder_name}/{root_annotation}", *tree_lines, "```", ""]
+    parts = [
+        "```",
+        *header,
+        "",
+        f"{FOLDER} {folder_name}/{root_annotation}",
+        *tree_lines,
+        "```",
+        "",
+    ]
     return "\n".join(parts)
 
 
@@ -770,132 +1580,115 @@ def assemble_document(
 # CLI / IO
 # ---------------------------------------------------------------------------
 
+def _parse_positive_int(value: str, fallback: int) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        return fallback
+    return max(1, parsed)
+
+
 def parse_args(argv: list[str], default_path: Path) -> Config:
-    path: Path | None = None
+    path: Optional[Path] = None
     depth = 0
     show_hidden = True
-    use_ignore = True
     clipboard = False
-    collapsed = DEFAULT_COLLAPSED
-    i = 1
-    while i < len(argv):
-        a = argv[i]
-        if a in ("-h", "--help"):
+    bounded = True
+    collapsed_names = DEFAULT_COLLAPSED_NAMES
+    max_lines = MAX_DOCUMENT_LINES
+    max_dirs = MAX_DIRECTORIES_PER_DIRECTORY
+    max_files = MAX_FILES_PER_DIRECTORY
+    max_bulk = MAX_BULK_FILES_PER_CATEGORY
+
+    index = 1
+    while index < len(argv):
+        argument = argv[index]
+        if argument in ("-h", "--help"):
             print(__doc__)
-            sys.exit(0)
-        elif a == "--path" and i + 1 < len(argv):
-            path = Path(argv[i + 1])
-            i += 1
-        elif a == "--depth" and i + 1 < len(argv):
+            raise SystemExit(0)
+        if argument == "--path" and index + 1 < len(argv):
+            path = Path(argv[index + 1])
+            index += 2
+            continue
+        if argument == "--depth" and index + 1 < len(argv):
             try:
-                depth = max(0, int(argv[i + 1]))
+                depth = max(0, int(argv[index + 1]))
             except ValueError:
                 pass
-            i += 1
-        elif a == "--hidden":
-            show_hidden = True
-        elif a in ("--no-hidden", "--nohidden"):
+            index += 2
+            continue
+        if argument in ("--no-hidden", "--nohidden"):
             show_hidden = False
-        elif a in ("--expand", "--all"):
-            collapsed = frozenset()
-        elif a == "--no-ignore":
-            use_ignore = False
-        elif a == "--clipboard":
+        elif argument == "--hidden":
+            show_hidden = True
+        elif argument == "--clipboard":
             clipboard = True
-        elif path is None and not a.startswith("-"):
-            path = Path(a)
-        i += 1
+        elif argument == "--expand":
+            collapsed_names = frozenset()
+        elif argument in ("--unbounded", "--full"):
+            bounded = False
+        elif argument == "--all":
+            bounded = False
+            collapsed_names = frozenset()
+        elif argument == "--max-lines" and index + 1 < len(argv):
+            max_lines = _parse_positive_int(argv[index + 1], max_lines)
+            index += 2
+            continue
+        elif argument == "--max-dirs" and index + 1 < len(argv):
+            max_dirs = _parse_positive_int(argv[index + 1], max_dirs)
+            index += 2
+            continue
+        elif argument == "--max-files" and index + 1 < len(argv):
+            max_files = _parse_positive_int(argv[index + 1], max_files)
+            index += 2
+            continue
+        elif argument == "--max-bulk" and index + 1 < len(argv):
+            max_bulk = _parse_positive_int(argv[index + 1], max_bulk)
+            index += 2
+            continue
+        elif argument == "--no-ignore":
+            # Accepted as a backward-compatible no-op. Ignore files are never
+            # read by this version.
+            pass
+        elif path is None and not argument.startswith("-"):
+            path = Path(argument)
+        index += 1
 
     target = path or default_path
     try:
         target = target.resolve()
     except Exception as exc:
         print(f"\n  {RED}{PIPE}{RESET} Failed to resolve target: {exc}")
-        sys.exit(1)
+        raise SystemExit(1) from exc
+
+    if bounded:
+        max_lines = max(MIN_DOCUMENT_LINES, max_lines)
+        max_dirs = min(max_dirs, max(1, max_lines // 6))
+        max_files = min(max_files, max(1, max_lines // 2))
+        max_bulk = min(max_bulk, max_files)
 
     return Config(
         target=target,
         max_depth=depth,
         show_hidden=show_hidden,
-        use_ignore=use_ignore,
-        collapsed=collapsed,
+        collapsed_names=collapsed_names,
         clipboard=clipboard,
         output_name="" if clipboard else f"{_root_display_name(target)}_dir_tree.md",
+        bounded=bounded,
+        max_document_lines=max_lines,
+        max_directories_per_directory=max_dirs,
+        max_files_per_directory=max_files,
+        max_bulk_files_per_category=max_bulk,
     )
 
 
 def _console_progress(dirs_done: int, label: str) -> None:
     frame = SPINNER[dirs_done % len(SPINNER)]
     name = f"  {DIM}{label}{RESET}" if label else ""
-    sys.stdout.write(f"\r  {CYAN}{frame}{RESET}  {dirs_done} dirs scanned{name}    ")
+    sys.stdout.write(
+        f"\r  {CYAN}{frame}{RESET}  {dirs_done:,} dirs scanned{name}    "
+    )
     sys.stdout.flush()
-
-
-def _make_truncate_prompt() -> TruncateFn:
-    """Returns a stateful truncate callback.
-
-    On first large directory, asks whether to apply a global answer
-    (y/n for all) or choose individually per directory.
-    """
-    state: dict[str, object] = {"mode": None, "global_answer": None}
-
-    def _prompt(dir_path: Path, count: int) -> bool:
-        # Clear the progress line before prompting
-        sys.stdout.write("\r" + " " * 80 + "\r")
-        sys.stdout.flush()
-
-        if state["mode"] is None:
-            print()
-            _con_box([
-                f"Large directory detected",
-                f"",
-                f"  {dir_path.name}   {DIM}({count:,} entries){RESET}",
-                f"",
-                f"More large directories may follow.",
-            ], colour=YELLOW)
-            print()
-            while True:
-                choice = _con_prompt(
-                    "Apply one answer to all, or decide per directory?",
-                    "(g)lobal / (i)ndividual",
-                )
-                if choice in ("g", "global"):
-                    state["mode"] = "global"
-                    break
-                if choice in ("i", "individual"):
-                    state["mode"] = "individual"
-                    break
-
-            if state["mode"] == "global":
-                while True:
-                    answer = _con_prompt(
-                        "List large directories in full?",
-                        "(y)es, list all / (n)o, summary only",
-                    )
-                    if answer in ("y", "yes"):
-                        state["global_answer"] = False
-                        print()
-                        return False
-                    if answer in ("n", "no"):
-                        state["global_answer"] = True
-                        print()
-                        return True
-
-        if state["mode"] == "global":
-            return state["global_answer"]
-
-        print()
-        print(f"  {YELLOW}{PIPE}{RESET} {dir_path.name}  {DIM}({count:,} entries){RESET}")
-        while True:
-            choice = _con_prompt("List all?", "(y)es / (n)o, summary only")
-            if choice in ("y", "yes"):
-                print()
-                return False
-            if choice in ("n", "no"):
-                print()
-                return True
-
-    return _prompt
 
 
 def main() -> None:
@@ -918,61 +1711,69 @@ def main() -> None:
 
     folder_name = _root_display_name(config.target)
     stats = Stats()
-
-    # Set up ignore filter
-    ignore_filter: Optional[IgnoreFilter] = None
-    if config.use_ignore and IgnoreFilter.available():
-        ignore_filter = IgnoreFilter()
-    elif config.use_ignore and not IgnoreFilter.available() and not config.clipboard:
-        _con_warn("pathspec not installed - ignore files will not be processed")
-        print(f"  {DIM}pip install pathspec{RESET}")
-        print()
+    context = ScanContext(config.target)
+    context.register(config.target, ".")
 
     if not config.clipboard:
-        banner = [f"dir_tree"]
-        banner.append(f"")
-        banner.append(f"  {str(config.target)}")
+        banner = ["dir_tree", "", f"  {config.target}"]
         if config.max_depth:
             banner.append(f"  Depth limit: {config.max_depth}")
         if not config.show_hidden:
-            banner.append(f"  Hidden entries: suppressed")
-        if not config.collapsed:
-            banner.append(f"  Expanding all directories")
-        if not config.use_ignore:
-            banner.append(f"  Ignore files: disabled")
+            banner.append("  Hidden entries: not listed")
+        if not config.collapsed_names:
+            banner.append("  Known low-value directories: expanded")
+        if config.bounded:
+            banner.append(
+                f"  Output: <= {config.max_document_lines:,} lines; "
+                f"{config.max_directories_per_directory} folders / "
+                f"{config.max_files_per_directory} files per directory"
+            )
+        else:
+            banner.append("  Output limits: disabled")
         print()
         _con_box(banner)
         print()
 
-    t0 = time.perf_counter()
+    start = time.perf_counter()
     root = scan(
-        config.target, config, stats,
+        config.target,
+        config,
+        stats,
+        context,
         on_progress=None if config.clipboard else _console_progress,
-        on_truncate=None if config.clipboard else _make_truncate_prompt(),
-        ignore_filter=ignore_filter,
     )
-    elapsed = time.perf_counter() - t0
+    _enforce_global_budget(root, config, stats)
+    _reconcile_output_stats(root, stats)
+    elapsed = time.perf_counter() - start
 
     if not config.clipboard:
-        sys.stdout.write("\r" + " " * 80 + "\r")
+        sys.stdout.write("\r" + " " * 100 + "\r")
         sys.stdout.flush()
 
-        # Report discovered ignore files
-        if ignore_filter and ignore_filter.discovered:
-            names = sorted(set(name for _, name in ignore_filter.discovered))
-            _con_kv("Ignoring", ", ".join(names))
-            _con_kv("", f"{DIM}{len(ignore_filter.discovered)} file(s) across tree{RESET}")
-            print()
-
     tree_lines = render_tree(root)
-    document = assemble_document(folder_name, config.target, config, tree_lines, elapsed, stats)
+    document = assemble_document(
+        folder_name,
+        config.target,
+        config,
+        tree_lines,
+        elapsed,
+        stats,
+    )
+
+    # The pruning calculation includes a conservative fixed overhead. This is a
+    # final invariant check rather than a second truncation mechanism.
+    if config.bounded and len(document.splitlines()) > config.max_document_lines:
+        raise RuntimeError(
+            f"Internal line-budget failure: generated {len(document.splitlines()):,} "
+            f"lines with a limit of {config.max_document_lines:,}"
+        )
 
     if config.clipboard:
         try:
             _copy_text_to_clipboard(document)
         except Exception as exc:
             _show_clipboard_error(f"Failed to copy directory tree:\n\n{exc}")
-            raise SystemExit(1)
+            raise SystemExit(1) from exc
         return
 
     output = config.target / f"{folder_name}_dir_tree.md"
@@ -986,10 +1787,17 @@ def main() -> None:
     _con_kv("Folders", f"{stats.folders:,}")
     _con_kv("Files", f"{stats.files:,}")
     _con_kv("Size", _human_size(stats.total_bytes))
+    _con_kv("Lines", f"{len(document.splitlines()):,}")
     if stats.collapsed:
-        _con_kv("Collapsed", f"{stats.collapsed:,} folder(s) not expanded")
-    if stats.skipped_files:
-        _con_kv("Not listed", f"{stats.skipped_files:,} file(s)")
+        _con_kv("Not expanded", f"{stats.collapsed:,} folder(s)")
+    if stats.unlisted_dirs:
+        _con_kv("Folders hidden", f"{stats.unlisted_dirs:,}")
+    if stats.unlisted_files:
+        _con_kv("Not listed", f"{stats.unlisted_files:,} file(s)")
+    if stats.repetitive_collapsed:
+        _con_kv("Pattern-folded", f"{stats.repetitive_collapsed:,} branch(es)")
+    if stats.budget_collapsed:
+        _con_kv("Line-trimmed", f"{stats.budget_collapsed:,} branch(es)")
     _con_kv("Time", f"{elapsed:.2f}s")
     _con_divider()
     print()
@@ -1007,8 +1815,11 @@ if __name__ == "__main__":
     except Exception as exc:
         if clipboard_mode:
             _show_clipboard_error(f"Copy directory tree failed:\n\n{exc}")
-            raise SystemExit(1)
+            raise SystemExit(1) from exc
         traceback.print_exc()
     finally:
         if not clipboard_mode:
-            input(f"  {DIM}Press Enter to close...{RESET}")
+            try:
+                input(f"  {DIM}Press Enter to close...{RESET}")
+            except EOFError:
+                pass

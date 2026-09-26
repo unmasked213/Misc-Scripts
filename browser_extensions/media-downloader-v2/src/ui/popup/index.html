@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Media Downloader</title>
+    <link rel="stylesheet" href="../kit/tokens.css">
+    <style>
+        /* Deliberately small. The popup is a launcher, not a workspace — it
+           unmounts on any outside click, which is precisely why v1's grid
+           lived in the wrong container and why the codebase grew a
+           detached-window hack to work around its own primary UI. */
+        body { width: 260px; padding: var(--ui-space-3); }
+        h1 { font-size: var(--ui-text-lg); margin: 0 0 var(--ui-space-3); }
+        .row { display: flex; flex-direction: column; gap: var(--ui-space-2); }
+        .row button { width: 100%; text-align: left; display: flex; justify-content: space-between; }
+        .count { font-variant-numeric: tabular-nums; color: var(--ui-text-dim); }
+        .note { margin-top: var(--ui-space-3); font-size: var(--ui-text-xs); color: var(--ui-text-faint); }
+    </style>
+</head>
+<body>
+    <h1>Media Downloader</h1>
+    <div class="row">
+        <button id="library" class="primary">Open Library <span class="count" id="n">0</span></button>
+        <button id="scan">Scan this tab</button>
+        <button id="scanAll">Scan all tabs in window</button>
+    </div>
+    <div class="note" id="note"></div>
+    <script type="module" src="popup.js"></script>
+</body>
+</html>

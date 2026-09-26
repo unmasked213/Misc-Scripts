@@ -7,7 +7,7 @@
 # Entries carry #EXTINF duration and title; unknown duration writes -1.
 #
 # Sort: Name A-Z within folder groups; Size, Date modified, Duration and
-# Quality sort globally (descending).
+# Quality sort globally (descending); Random shuffles each generated run.
 # Quality ranks resolution, then HDR/bit depth, codec-normalised bitrate per
 # pixel per frame, frame rate, bitrate, size. Missing metadata never shares a
 # scale with valid metadata. In accurate mode the bitrate-per-pixel term uses
@@ -42,6 +42,7 @@ import json
 import math
 import operator
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -60,7 +61,12 @@ except Exception:
 
 DEFAULT_TARGET_DIR = Path(__file__).parent.resolve()
 TARGET_DIR = DEFAULT_TARGET_DIR
+RUN_HEADLESS = False
+RUN_SORT_CHOICE = None
+RUN_ORIENTATION_CHOICE = None
+RUN_CLOSE_COUNTDOWN = True
 COUNTDOWN_SECS = 10
+PROMPT_TIMEOUT_SECS = 8
 PROBE_TIMEOUT = 10
 CACHE_SAVE_INTERVAL = 20.0
 ORIENTATION_TIMEOUT = 15
@@ -112,11 +118,46 @@ VIDEO_EXTENSIONS = {
     ".ogv",
 }
 
-SORT_OPTIONS = {"1": "Name", "2": "Size", "3": "Date modified", "4": "Duration", "5": "Quality"}
+SORT_OPTIONS = {
+    "1": "Name",
+    "2": "Size",
+    "3": "Date modified",
+    "4": "Duration",
+    "5": "Quality",
+    "6": "Random",
+}
 
 ORIENTATION_OPTIONS = {"1": "Fast (metadata only)", "2": "Accurate (cached content scan)"}
 
-SORT_DESCENDING = {"1": False, "2": True, "3": True, "4": True, "5": True}
+SORT_DESCENDING = {"1": False, "2": True, "3": True, "4": True, "5": True, "6": False}
+
+SORT_ALIASES = {
+    "1": "1",
+    "name": "1",
+    "2": "2",
+    "size": "2",
+    "3": "3",
+    "date": "3",
+    "date_modified": "3",
+    "date-modified": "3",
+    "modified": "3",
+    "4": "4",
+    "duration": "4",
+    "5": "5",
+    "quality": "5",
+    "6": "6",
+    "random": "6",
+    "shuffle": "6",
+}
+
+ORIENTATION_ALIASES = {
+    "1": "1",
+    "fast": "1",
+    "metadata": "1",
+    "2": "2",
+    "accurate": "2",
+    "content": "2",
+}
 
 CODEC_WEIGHTS = {
     "h264": 1.00,
@@ -163,16 +204,94 @@ class TargetDirectoryError(Exception):
     pass
 
 
+def _normalise_choice(value, aliases, label):
+    key = str(value).strip().lower()
+    choice = aliases.get(key)
+
+    if choice is None:
+        valid = ", ".join(sorted(set(aliases.values())))
+        raise TargetDirectoryError(f"Invalid {label}: {value}. Choose: {valid}")
+
+    return choice
+
+
 def configure_target_directory(arguments):
     global TARGET_DIR
     global CACHE_FILE
     global _CRYPTOMATOR_DRIVE_ROOTS
+    global RUN_HEADLESS
+    global RUN_SORT_CHOICE
+    global RUN_ORIENTATION_CHOICE
+    global RUN_CLOSE_COUNTDOWN
+    global PROMPT_TIMEOUT_SECS
 
-    if not arguments:
+    target_text = None
+    headless = False
+    sort_choice = None
+    orientation_choice = None
+    close_countdown = True
+    prompt_timeout = PROMPT_TIMEOUT_SECS
+    index = 0
+
+    while index < len(arguments):
+        argument = arguments[index]
+
+        if argument == "--path":
+            index += 1
+
+            if index >= len(arguments):
+                raise TargetDirectoryError("--path requires a folder.")
+
+            target_text = arguments[index].strip()
+        elif argument == "--headless":
+            headless = True
+        elif argument == "--sort":
+            index += 1
+
+            if index >= len(arguments):
+                raise TargetDirectoryError("--sort requires a value.")
+
+            sort_choice = _normalise_choice(arguments[index], SORT_ALIASES, "sort option")
+        elif argument == "--orientation":
+            index += 1
+
+            if index >= len(arguments):
+                raise TargetDirectoryError("--orientation requires a value.")
+
+            orientation_choice = _normalise_choice(
+                arguments[index], ORIENTATION_ALIASES, "orientation option"
+            )
+        elif argument == "--prompt-timeout":
+            index += 1
+
+            if index >= len(arguments):
+                raise TargetDirectoryError("--prompt-timeout requires seconds.")
+
+            try:
+                prompt_timeout = max(0, int(arguments[index]))
+            except ValueError as error:
+                raise TargetDirectoryError("--prompt-timeout must be a whole number.") from error
+        elif argument == "--no-close":
+            close_countdown = False
+        else:
+            raise TargetDirectoryError(
+                "Usage: playlist_generator.py [--path <folder>] [--headless] "
+                "[--sort <name|size|date_modified|duration|quality|random>] "
+                "[--orientation <fast|accurate>] [--prompt-timeout <seconds>] "
+                "[--no-close]"
+            )
+
+        index += 1
+
+    RUN_HEADLESS = headless
+    RUN_SORT_CHOICE = sort_choice
+    RUN_ORIENTATION_CHOICE = orientation_choice
+    RUN_CLOSE_COUNTDOWN = False if headless else close_countdown
+    PROMPT_TIMEOUT_SECS = prompt_timeout
+
+    if target_text is None:
         target = DEFAULT_TARGET_DIR
-    elif len(arguments) == 2 and arguments[0] == "--path":
-        target_text = arguments[1].strip()
-
+    else:
         if not target_text:
             raise TargetDirectoryError("No target folder was supplied.")
 
@@ -180,8 +299,6 @@ def configure_target_directory(arguments):
             target = Path(target_text).expanduser().resolve()
         except (OSError, RuntimeError) as error:
             raise TargetDirectoryError(f"Cannot resolve target folder: {target_text}") from error
-    else:
-        raise TargetDirectoryError("Usage: playlist_generator.py [--path <folder>]")
 
     try:
         is_directory = target.is_dir()
@@ -190,6 +307,10 @@ def configure_target_directory(arguments):
 
     if not is_directory:
         raise TargetDirectoryError(f"Target folder does not exist or is not accessible: {target}")
+
+    if headless:
+        RUN_SORT_CHOICE = sort_choice or "3"
+        RUN_ORIENTATION_CHOICE = orientation_choice or "2"
 
     TARGET_DIR = target
     CACHE_FILE = TARGET_DIR / ".playlist_generator_cache.json"
@@ -491,8 +612,58 @@ def _countdown(seconds=COUNTDOWN_SECS):
     sys.stdout.write("\r" + " " * 60 + "\r")
     sys.stdout.flush()
 
-def _con_prompt(valid):
+def _finish_prompt(choice, automatic=False):
+    sys.stdout.write("\r" + " " * 100 + "\r")
+    suffix = f" {DIM}(automatic){RESET}" if automatic else ""
+    sys.stdout.write(f"  {YELLOW}{PIPE}{RESET} Choice: {BOLD}{choice}{RESET}{suffix}\n")
+    sys.stdout.flush()
+
+
+def _con_prompt(valid, default=None, timeout_seconds=None):
+    if default is not None and default not in valid:
+        raise ValueError("Prompt default must be one of the valid choices.")
+
+    use_timeout = default is not None and timeout_seconds is not None and timeout_seconds > 0
+
     if sys.platform != "win32":
+        if use_timeout and not sys.stdin.isatty():
+            _finish_prompt(default, automatic=True)
+            return default
+
+        if use_timeout:
+            try:
+                import select
+
+                deadline = time.monotonic() + timeout_seconds
+                last_remaining = None
+
+                while True:
+                    remaining = max(0, math.ceil(deadline - time.monotonic()))
+
+                    if remaining != last_remaining:
+                        sys.stdout.write("\r" + " " * 100 + "\r")
+                        sys.stdout.write(
+                            f"  {YELLOW}{PIPE}{RESET} Choice: "
+                            f"{DIM}(default {default} in {remaining}s){RESET} "
+                        )
+                        sys.stdout.flush()
+                        last_remaining = remaining
+
+                    readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+
+                    if readable:
+                        choice = sys.stdin.readline().strip().lower()
+
+                        if choice in valid:
+                            _finish_prompt(choice)
+                            return choice
+
+                    if time.monotonic() >= deadline:
+                        _finish_prompt(default, automatic=True)
+                        return default
+            except (ImportError, OSError, ValueError):
+                pass
+
         sys.stdout.write(f"  {YELLOW}{PIPE}{RESET} Choice: ")
         sys.stdout.flush()
 
@@ -508,16 +679,39 @@ def _con_prompt(valid):
             sys.stdout.flush()
 
     import msvcrt
-    sys.stdout.write(f"  {YELLOW}{PIPE}{RESET} Choice: ")
-    sys.stdout.flush()
+    deadline = time.monotonic() + timeout_seconds if use_timeout else None
+    last_remaining = None
+
+    if deadline is None:
+        sys.stdout.write(f"  {YELLOW}{PIPE}{RESET} Choice: ")
+        sys.stdout.flush()
 
     while True:
-        choice = msvcrt.getwch().lower()
+        if deadline is not None:
+            remaining = max(0, math.ceil(deadline - time.monotonic()))
 
-        if choice in valid:
-            sys.stdout.write(f"{BOLD}{choice}{RESET}\n")
-            sys.stdout.flush()
-            return choice
+            if remaining != last_remaining:
+                sys.stdout.write("\r" + " " * 100 + "\r")
+                sys.stdout.write(
+                    f"  {YELLOW}{PIPE}{RESET} Choice: "
+                    f"{DIM}(default {default} in {remaining}s){RESET} "
+                )
+                sys.stdout.flush()
+                last_remaining = remaining
+
+        if msvcrt.kbhit():
+            choice = msvcrt.getwch().lower()
+
+            if choice in valid:
+                _finish_prompt(choice)
+                return choice
+
+        if deadline is not None and time.monotonic() >= deadline:
+            _finish_prompt(default, automatic=True)
+            return default
+
+        time.sleep(0.05)
+
 
 def _format_age(seconds):
     if seconds < 60:
@@ -599,12 +793,17 @@ def render_screen(answered):
         _render_summary(answered)
         print()
 
-def _print_question(label, options):
+def _print_question(label, options, default_key=None):
     print(f"  {YELLOW}{PIPE}{RESET} " f"{BOLD}{WHITE}{label}{RESET}")
     print(f"  {YELLOW}{PIPE}{RESET}")
 
     for key, option_label in options.items():
-        print(f"  {YELLOW}{PIPE}{RESET}   " f"{DIM}{key}{RESET}  " f"{option_label}")
+        default_label = f"  {DIM}(default){RESET}" if key == default_key else ""
+        print(
+            f"  {YELLOW}{PIPE}{RESET}   "
+            f"{DIM}{key}{RESET}  "
+            f"{option_label}{default_label}"
+        )
 
     print(f"  {YELLOW}{PIPE}{RESET}")
 
@@ -756,7 +955,7 @@ def save_cache(cache, force=True):
         return
 
     payload = {"schema": CACHE_SCHEMA_VERSION, "files": cache.get("files", {})}
-    temporary_path = CACHE_FILE.with_suffix(CACHE_FILE.suffix + ".tmp")
+    temporary_path = CACHE_FILE.with_name(CACHE_FILE.name + f".tmp-{os.getpid()}")
 
     try:
         temporary_path.write_text(
@@ -2744,11 +2943,18 @@ def save_playlist(path, entries, probe_cache=None, title_map=None, comment_map=N
         lines.append(playlist_path_text(entry))
 
     content = "\n".join(lines) + "\n"
+    temporary_path = path.with_name(path.name + f".tmp-{os.getpid()}")
 
     try:
-        path.write_text(content, encoding="utf-8")
+        temporary_path.write_text(content, encoding="utf-8")
+        os.replace(temporary_path, path)
         return True
     except (OSError, PermissionError) as error:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
         _con_warn(f"Failed to save " f"{path.name}: {error}")
         return False
 
@@ -2881,8 +3087,16 @@ def get_sort_key(mode, path, probe_cache=None):
     return 0
 
 def sort_entries(entries, mode, probe_cache=None):
-    key_cache = {}
     total = len(entries)
+
+    if mode == "6":
+        shuffled = list(entries)
+        _con_info("Shuffling")
+        random.SystemRandom().shuffle(shuffled)
+        _progress_done("Shuffled", total)
+        return shuffled
+
+    key_cache = {}
     _con_info("Sorting")
 
     for index, entry in enumerate(entries, 1):
@@ -2933,35 +3147,57 @@ def split_by_orientation(entries, probe_cache):
 
 def ask_sort(answered):
     render_screen(answered)
-    _print_question("Sort by", SORT_OPTIONS)
+    _print_question("Sort by", SORT_OPTIONS, default_key="3")
 
-    return _con_prompt(valid=set(SORT_OPTIONS))
+    return _con_prompt(
+        valid=set(SORT_OPTIONS), default="3", timeout_seconds=PROMPT_TIMEOUT_SECS
+    )
 
 def ask_orientation(answered):
     render_screen(answered)
-    _print_question("Orientation analysis", ORIENTATION_OPTIONS)
+    _print_question("Orientation analysis", ORIENTATION_OPTIONS, default_key="2")
 
-    return _con_prompt(valid=set(ORIENTATION_OPTIONS))
+    return _con_prompt(
+        valid=set(ORIENTATION_OPTIONS), default="2", timeout_seconds=PROMPT_TIMEOUT_SECS
+    )
 
 def _run():
     answered = {}
     cache = load_cache()
-    sort_choice = ask_sort(answered)
+    sort_choice = RUN_SORT_CHOICE or ask_sort(answered)
     answered["Sort by"] = SORT_OPTIONS[sort_choice]
-    orientation_choice = "1"
+    orientation_choice = RUN_ORIENTATION_CHOICE or "1"
 
     if HAS_FFPROBE and HAS_FFMPEG:
-        orientation_choice = ask_orientation(answered)
+        if RUN_ORIENTATION_CHOICE is None:
+            orientation_choice = ask_orientation(answered)
+
         answered["Orientation"] = ORIENTATION_OPTIONS[orientation_choice]
     elif HAS_FFPROBE:
+        orientation_choice = "1"
         answered["Orientation"] = ORIENTATION_OPTIONS["1"]
 
-    render_screen(answered)
+    if RUN_HEADLESS:
+        print()
+        _con_box(_header_lines(), colour=CYAN)
+        print()
+        _render_summary(answered)
+        print()
+    else:
+        render_screen(answered)
     entries, nested_caches = scan()
 
     if not entries:
+        removed = prune_cache(cache, entries)
+        delete_stale_outputs(set())
+        save_cache(cache)
         print()
-        _con_box([f"{BOLD}{WHITE}NO OUTPUT{RESET}", "", "No videos found."], colour=YELLOW)
+        lines = [f"{BOLD}{WHITE}NO OUTPUT{RESET}", "", "No videos found."]
+
+        if removed:
+            lines.extend(["", f"{removed} stale cache record(s) removed."])
+
+        _con_box(lines, colour=YELLOW)
         print()
         return
 
@@ -3063,6 +3299,8 @@ def _run():
     print()
 
 def main(arguments=None):
+    exit_code = 0
+
     try:
         configure_target_directory(sys.argv[1:] if arguments is None else arguments)
         _run()
@@ -3070,19 +3308,25 @@ def main(arguments=None):
     except TargetDirectoryError as error:
         print()
         _con_warn(str(error))
+        exit_code = 2
 
     except KeyboardInterrupt:
         print()
         _con_warn(f"{DIM}Cancelled.{RESET}")
+        exit_code = 130
 
     except Exception:
         print()
         _con_warn("Unhandled error:")
         import traceback
         traceback.print_exc()
+        exit_code = 1
 
     finally:
-        _countdown()
+        if RUN_CLOSE_COUNTDOWN and not RUN_HEADLESS:
+            _countdown()
+
+    return exit_code
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

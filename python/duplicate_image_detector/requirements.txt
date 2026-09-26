@@ -8,4 +8,3 @@ pillow>=8.0.0
 
 # Web server
 flask>=2.0.0
-flask-cors>=3.0.0

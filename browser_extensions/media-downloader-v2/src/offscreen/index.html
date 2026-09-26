@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Media Downloader — worker</title>
+</head>
+<body>
+<!--
+  Offscreen document: the extension-privileged DOM context.
+
+  Everything that moves media bytes happens HERE, never in the page's MAIN world.
+  This is the single most important structural difference from v1, which fetched
+  every manifest, key and preview from world:'MAIN' — page origin, page
+  privileges, real CORS check — and then concluded from the resulting failures
+  that MV3 made cross-origin media download impossible.
+
+  With host_permissions <all_urls>, fetches from this context are not CORS-bound.
+  The extension's own image pipeline has always relied on that fact; the video
+  path just never used it.
+
+  Unlike the service worker, this context also has Blob, URL.createObjectURL,
+  OffscreenCanvas and crypto.subtle available, and no 30-second idle death.
+-->
+<script type="module" src="index.js"></script>
+</body>
+</html>

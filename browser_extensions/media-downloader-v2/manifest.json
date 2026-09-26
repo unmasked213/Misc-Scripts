@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "Media Downloader v2",
+  "version": "2.1.0",
+  "description": "Detect and download images and video from any page, with verified results — it never reports a failure as success.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "tabs",
+    "downloads",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "webRequest",
+    "webNavigation",
+    "offscreen",
+    "declarativeNetRequest",
+    "contextMenus"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/worker/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/probe.main.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/bridge.iso.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "src/ui/popup/index.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png" },
+    "default_title": "Media Downloader"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "open-library": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Open the Media Library"
+    },
+    "scan-current-tab": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Scan the current tab for media"
+    }
+  }
+}

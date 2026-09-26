@@ -1,35 +1,81 @@
-# Copy directory tree
+# Copy directory tree - bounded-output update
 
-Adds a per-user Windows File Explorer command named **Copy directory tree**.
+Run `Update.cmd` to replace the installed script at:
 
-It appears when:
+```text
+%LocalAppData%\CopyDirectoryTree\dir_tree.py
+```
 
-- right-clicking a selected folder;
-- right-clicking the background of an open folder.
+The updater validates the replacement by executing its non-interactive help path with Python, backs up the current script with a timestamp, installs the new file, and verifies its SHA-256. It does not change the File Explorer registry entries or the hidden VBS launcher.
 
-The command runs the included `dir_tree.py` invisibly, generates the same Markdown tree as the original script, and copies it directly to the Windows clipboard. No tree file is written.
+## Default output policy
 
-## Install
+The context-menu command remains silent and copies the generated Markdown tree directly to the clipboard.
 
-Run `Install.cmd`.
+The replacement script:
 
-The installer:
+- does not read `.gitignore`, `.cursorignore`, `.treeignore`, or any other ignore file;
+- includes filenames such as `secrets.yaml`, `.env`, local configuration files, and binaries without reading file content;
+- shows known low-value directories but does not descend into them;
+- does not follow directory symlinks, junctions, or duplicate directory roots;
+- lists at most 60 child folders per directory;
+- lists at most 80 files per directory;
+- lists at most 20 representative filenames from each repetitive bulk family, including images, video, audio, fonts, archives, databases, datasets, binaries, models and logs;
+- condenses repeated sibling branches that contain the same structure or only repetitive bulk content;
+- trims lower-value branches if required to keep the complete Markdown document within 1,000 lines;
+- states every reduction in the tree rather than silently presenting a partial result as complete.
 
-- copies the script to `%LocalAppData%\CopyDirectoryTree\dir_tree.py`;
-- creates a hidden VBS launcher;
-- registers the two menu entries under `HKCU\Software\Classes`;
-- requires no administrator rights.
+Representative samples contain names from both the beginning and end of the sorted set.
 
-Python 3.10 or later is required. The optional `pathspec` package is still used when available for `.gitignore`, `.treeignore` and other `.*ignore` files.
+## Hard-coded directories shown but not expanded
 
-## Behaviour
+```text
+.git
+.hg
+.svn
+.cache
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tox
+.venv
+__pycache__
+bower_components
+build
+dist
+node_modules
+target
+venv
+.eggs
+.gradle
+.next
+.nuxt
+.parcel-cache
+.pnpm-store
+.svelte-kit
+.turbo
+coverage
+htmlcov
+```
 
-Clipboard mode is deliberately non-interactive. Directories above the script's normal prompt threshold are scanned in full rather than silently truncated.
+Tool worktree paths such as `.claude/worktrees/` are also shown but not expanded.
 
-Running `dir_tree.py` normally still retains the original behaviour: console progress, large-directory prompts, Markdown file output, and the final Enter-to-close pause.
+## Manual overrides
 
-Successful context-menu copies are silent. A Windows error dialog appears only if the scan or clipboard operation fails.
+The normal defaults apply to both context-menu and direct script use.
 
-## Uninstall
+```text
+--unbounded        Disable per-directory and whole-document output limits.
+--expand           Expand the hard-coded low-value directories.
+--all              Apply both --unbounded and --expand.
+--max-lines N      Override the 1,000-line document limit (minimum 250).
+--max-dirs N       Override the 60-child-folder limit.
+--max-files N      Override the 80-file limit.
+--max-bulk N       Override the 20-files-per-bulk-family limit.
+--depth N          Limit recursive depth.
+--no-hidden        Do not list hidden entries.
+```
 
-Run `Uninstall.cmd`.
+`--no-ignore` remains accepted as a compatibility no-op. Ignore files are never read.
+
+Per-directory overrides are constrained when necessary so the selected whole-document line limit remains enforceable.

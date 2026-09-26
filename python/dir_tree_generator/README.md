@@ -1,84 +1,81 @@
-# dir_tree.py
+# Copy directory tree - bounded-output update
 
-Recursive directory tree generator. Outputs a markdown file with box-drawing characters, inline folder stats, and a boxed summary header.
+Run `Update.cmd` to replace the installed script at:
 
-## Usage
-
-Double-click to scan the folder it lives in, or run from the command line:
-
-```
-python dir_tree.py
-python dir_tree.py --path "X:/Projects"
-python dir_tree.py --path "X:/Projects" --depth 4
-python dir_tree.py --path "X:/Projects" --hidden
+```text
+%LocalAppData%\CopyDirectoryTree\dir_tree.py
 ```
 
-Output is saved as `[foldername]_dir_tree.md` in the target folder.
+The updater validates the replacement with Python, backs up the current script with a timestamp, installs the new file, and verifies its SHA-256. It does not change the File Explorer registry entries or the hidden VBS launcher.
 
-## Options
+## Default output policy
 
-`--path` - target directory (defaults to the script's own folder)
+The context-menu command remains silent and copies the generated Markdown tree directly to the clipboard.
 
-`--depth` - max recursion depth (default unlimited)
+The replacement script:
 
-`--hidden` - include dotfiles and hidden folders
+- does not read `.gitignore`, `.cursorignore`, `.treeignore`, or any other ignore file;
+- includes filenames such as `secrets.yaml`, `.env`, local configuration files, and binaries without reading file content;
+- shows known low-value directories but does not descend into them;
+- does not follow directory symlinks, junctions, or duplicate directory roots;
+- lists at most 60 child folders per directory;
+- lists at most 80 files per directory;
+- lists at most 20 representative filenames from each repetitive bulk family, including images, video, audio, fonts, archives, databases, datasets, binaries, models and logs;
+- condenses repeated sibling branches that contain the same structure or only repetitive bulk content;
+- trims lower-value branches if required to keep the complete Markdown document within 1,000 lines;
+- states every reduction in the tree rather than silently presenting a partial result as complete.
 
-## Example output
+Representative samples contain names from both the beginning and end of the sorted set.
 
+## Hard-coded directories shown but not expanded
+
+```text
+.git
+.hg
+.svn
+.cache
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tox
+.venv
+__pycache__
+bower_components
+build
+dist
+node_modules
+target
+venv
+.eggs
+.gradle
+.next
+.nuxt
+.parcel-cache
+.pnpm-store
+.svelte-kit
+.turbo
+coverage
+htmlcov
 ```
-╭──────────────────────────────────────────────────╮
-│  Misc-Scripts                                    │
-│  D:/scripts/Misc Scripts/Misc-Scripts            │
-├──────────────────────────────────────────────────┤
-│  Scanned: 2026-03-20 23:04  |  Took: 0.04s      │
-╰──────────────────────────────────────────────────╯
 
-📁 Misc-Scripts/  (Total: 18 folders, 63 files, 882 KB)
-│
-├── 📁 batch/  (2 folders, 2 files, 3 KB)
-│   │
-│   ├── 📁 mp3 converter/  (2 files, 4 KB)
-│   │   ├── any2mp3.bat
-│   │   ╰── README.md
-│   │
-│   ├── 📁 rotate_display/  (3 files, 8 KB)
-│   │   ├── rotate-display.bat
-│   │   ╰── rotate-display.cs
-│   │
-│   ├── clean_ghosts.bat
-│   ╰── README.md
-│
-├── 📁 python/  (6 folders)
-│   │
-│   ├── 📁 media_stats/  (4 files, 48 KB)
-│   │   ├── folder_stats.py
-│   │   ├── image_stats.py
-│   │   ╰── video_stats.py
-│   │
-│   ╰── ...
-│
-├── CLAUDE.md
-╰── README.md
+Tool worktree paths such as `.claude/worktrees/` are also shown but not expanded.
+
+## Manual overrides
+
+The normal defaults apply to both context-menu and direct script use.
+
+```text
+--unbounded        Disable per-directory and whole-document output limits.
+--expand           Expand the hard-coded low-value directories.
+--all              Apply both --unbounded and --expand.
+--max-lines N      Override the 1,000-line document limit (minimum 250).
+--max-dirs N       Override the 60-child-folder limit.
+--max-files N      Override the 80-file limit.
+--max-bulk N       Override the 20-files-per-bulk-family limit.
+--depth N          Limit recursive depth.
+--no-hidden        Do not list hidden entries.
 ```
 
-The root folder shows recursive totals (prefixed with "Total:"). All other folders show direct child counts only.
+`--no-ignore` remains accepted as a compatibility no-op. Ignore files are never read.
 
-## Configuration
-
-Constants at the top of the script control behaviour:
-
-`TRUNCATE_THRESHOLD` (5000) - directories with more entries than this trigger an interactive prompt to list or summarise.
-
-`BREATHE_MAX_DEPTH` (2) - pipe separators between sibling folders are inserted up to this tree depth.
-
-`BREATHE_MIN_DIRS` (3) - pipe separators only appear when a directory has at least this many child folders.
-
-`DEFAULT_EXCLUDED` - set of directory/file names to skip (node_modules, __pycache__, .git, .vscode, etc.).
-
-## What it skips
-
-Dotfiles (unless `--hidden`), symlinks, its own source file, any previous `_dir_tree.md` output, and the directories listed in `DEFAULT_EXCLUDED`.
-
-## Requirements
-
-Python 3.10+ (no external dependencies).
+Per-directory overrides are constrained when necessary so the selected whole-document line limit remains enforceable.

@@ -1,0 +1,143 @@
+/**
+ * Design tokens, extending the --ui-* scale already used in this repo's
+ * extension conventions rather than inventing a parallel system.
+ *
+ * Deliberately desaturated: a tinted UI shifts your perception of the colours in
+ * the image you're judging, which is why every serious image tool ships grey.
+ * The accent is reserved for selection and focus and appears nowhere else.
+ */
+
+:root {
+    color-scheme: dark light;
+
+    /* Spacing */
+    --ui-space-1: 4px;
+    --ui-space-2: 8px;
+    --ui-space-3: 12px;
+    --ui-space-4: 16px;
+    --ui-space-5: 24px;
+    --ui-space-6: 32px;
+
+    /* Radii */
+    --ui-radius-sm: 4px;
+    --ui-radius: 8px;
+    --ui-radius-lg: 12px;
+
+    /* Motion — only where it encodes state change */
+    --ui-motion-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+    --ui-motion: 180ms cubic-bezier(0.2, 0, 0.2, 1);
+
+    /* Type */
+    --ui-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ui-mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+    --ui-text-xs: 11px;
+    --ui-text-sm: 12px;
+    --ui-text-md: 13px;
+    --ui-text-lg: 15px;
+
+    /* Grid density — driven by the zoom control, reflow only */
+    --tile: 168px;
+    --tile-gap: 8px;
+}
+
+/* Dark (default) */
+:root {
+    --ui-surface: #0e0f12;
+    --ui-elevated-1: #16181d;
+    --ui-elevated-2: #1e2128;
+    --ui-elevated-3: #272b34;
+    --ui-border: #2f333d;
+    --ui-border-strong: #3d424e;
+    --ui-text: #e6e8ee;
+    --ui-text-dim: #9aa1af;
+    --ui-text-faint: #6b7280;
+    --ui-accent: #1eabd0;
+    --ui-accent-dim: #17849f;
+    --ui-ok: #3fb950;
+    --ui-warn: #d29922;
+    --ui-fail: #f05d5d;
+    --ui-skip: #6b7280;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --ui-surface: #f6f7f9;
+        --ui-elevated-1: #ffffff;
+        --ui-elevated-2: #f0f1f4;
+        --ui-elevated-3: #e6e8ec;
+        --ui-border: #d8dbe1;
+        --ui-border-strong: #b9bec8;
+        --ui-text: #14161a;
+        --ui-text-dim: #545b67;
+        --ui-text-faint: #858c99;
+        --ui-accent: #0d7f9e;
+        --ui-accent-dim: #0a6480;
+        --ui-ok: #1a7f37;
+        --ui-warn: #9a6700;
+        --ui-fail: #cf222e;
+        --ui-skip: #858c99;
+    }
+}
+
+:root[data-theme="light"] {
+    --ui-surface: #f6f7f9;
+    --ui-elevated-1: #ffffff;
+    --ui-elevated-2: #f0f1f4;
+    --ui-elevated-3: #e6e8ec;
+    --ui-border: #d8dbe1;
+    --ui-border-strong: #b9bec8;
+    --ui-text: #14161a;
+    --ui-text-dim: #545b67;
+    --ui-text-faint: #858c99;
+    --ui-accent: #0d7f9e;
+    --ui-accent-dim: #0a6480;
+    --ui-ok: #1a7f37;
+    --ui-warn: #9a6700;
+    --ui-fail: #cf222e;
+    --ui-skip: #858c99;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: var(--ui-font);
+    font-size: var(--ui-text-md);
+    background: var(--ui-surface);
+    color: var(--ui-text);
+    -webkit-font-smoothing: antialiased;
+}
+
+button {
+    font: inherit;
+    color: inherit;
+    background: var(--ui-elevated-2);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-sm);
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: background var(--ui-motion-fast), border-color var(--ui-motion-fast);
+}
+button:hover:not(:disabled) { background: var(--ui-elevated-3); border-color: var(--ui-border-strong); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--ui-accent); border-color: var(--ui-accent); color: #fff; }
+button.primary:hover:not(:disabled) { background: var(--ui-accent-dim); }
+
+:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
+input[type="range"] { accent-color: var(--ui-accent); }
+select, input[type="text"], input[type="search"] {
+    font: inherit; color: inherit;
+    background: var(--ui-elevated-2);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-sm);
+    padding: 5px 8px;
+}
+
+.muted { color: var(--ui-text-dim); }
+.faint { color: var(--ui-text-faint); }
+.mono { font-family: var(--ui-mono); font-size: var(--ui-text-sm); }
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+}

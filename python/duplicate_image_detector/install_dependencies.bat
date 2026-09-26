@@ -14,7 +14,6 @@ echo   - opencv-python-headless
 echo   - numpy
 echo   - pillow
 echo   - flask
-echo   - flask-cors
 echo.
 echo Press any key to continue...
 pause >nul
@@ -35,6 +34,16 @@ if errorlevel 1 (
 python --version
 echo [OK] Python is installed
 
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
+if errorlevel 1 (
+    echo [ERROR] Python 3.10 or later is required
+    echo.
+    echo Install a current Python release from https://www.python.org/downloads/
+    echo.
+    pause
+    exit /b 1
+)
+
 echo.
 echo [STEP 2/3] Upgrading pip...
 python -m pip install --upgrade pip
@@ -45,14 +54,14 @@ if errorlevel 1 (
 echo.
 echo [STEP 3/3] Installing required packages...
 echo.
-python -m pip install opencv-python-headless numpy pillow flask flask-cors
+python -m pip install -r "%~dp0requirements.txt"
 
 if errorlevel 1 (
     echo.
     echo [ERROR] Installation failed
     echo.
-    echo Please try running this as Administrator or install manually:
-    echo   pip install opencv-python-headless numpy pillow flask flask-cors
+echo Please try running this as Administrator or install manually:
+echo   python -m pip install -r requirements.txt
     echo.
     pause
     exit /b 1

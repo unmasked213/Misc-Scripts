@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="dupefinder-api-token" content="__DUPEFINDER_API_TOKEN__">
   <title>Duplicate Image Finder</title>
   <style>
 /* ========================================================================
@@ -890,10 +891,22 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: var(--ui-space-4);
   padding: var(--ui-space-4) var(--ui-space-6);
   background: var(--ui-elevated-1);
   border-top: 1px solid var(--ui-border-color-light);
+}
+
+.results__footer-note {
+  flex-basis: 100%;
+  color: var(--ui-warning);
+  font-size: var(--ui-font-s);
+  text-align: center;
+}
+
+.results__footer-note[hidden] {
+  display: none;
 }
 
 
@@ -1250,6 +1263,188 @@ html, body {
   color: var(--ui-warning);
 }
 
+.image-card__kind-row,
+.compare__kind-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+  align-items: center;
+}
+
+.match-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  border: 1px solid var(--ui-border-color-med);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-elevated-1);
+  color: var(--ui-text);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-font-weight-l);
+}
+
+.match-badge--exact { border-color: var(--ui-success); color: var(--ui-success); }
+.match-badge--pixel { border-color: var(--ui-info); color: var(--ui-info); }
+.match-badge--variant { border-color: var(--ui-warning); color: var(--ui-warning); }
+.match-badge--indirect { border-color: var(--ui-error); color: var(--ui-error); }
+.match-badge--reference { border-color: var(--ui-accent); color: var(--ui-accent); }
+
+.image-card__path,
+.compare__path,
+.compare__relative-path {
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  color: var(--ui-text-mute);
+  font-size: var(--ui-font-xs);
+  line-height: 1.4;
+}
+
+.compare__path {
+  max-height: 3.2em;
+  overflow: auto;
+}
+
+.compare__info-card {
+  max-height: 46%;
+  overflow: auto;
+}
+
+.image-card__path {
+  color: var(--ui-text);
+}
+
+.image-card__full-path {
+  font-size: var(--ui-font-xs);
+  color: var(--ui-text-mute);
+}
+
+.image-card__full-path summary {
+  cursor: pointer;
+  color: var(--ui-accent);
+}
+
+.image-card__full-path-value {
+  margin-top: var(--ui-space-1);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.image-card__name,
+.compare__filename,
+.quarantine-review__list li,
+.operation-failures__list li {
+  unicode-bidi: plaintext;
+}
+
+.image-card__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ui-space-2);
+}
+
+.image-card__actions .btn {
+  min-width: 0;
+  white-space: normal;
+}
+
+.image-card[aria-busy="true"] {
+  opacity: var(--ui-state-disabled-opacity);
+  pointer-events: none;
+}
+
+.verification-text {
+  color: var(--ui-text-mute);
+  font-size: var(--ui-font-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.operation-failures {
+  max-width: 1100px;
+  margin: 0 auto var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-error);
+  border-radius: var(--ui-radius-m);
+  background: var(--ui-error-soft);
+  color: var(--ui-text);
+}
+
+.operation-failures[hidden] { display: none; }
+
+.operation-failures__title {
+  margin-bottom: var(--ui-space-2);
+  font-weight: var(--ui-font-weight-l);
+}
+
+.operation-failures__list,
+.quarantine-review__list {
+  margin: 0;
+  padding-left: var(--ui-space-5);
+  max-height: 220px;
+  overflow: auto;
+}
+
+.operation-failures__list li,
+.quarantine-review__list li {
+  margin-bottom: var(--ui-space-2);
+  overflow-wrap: anywhere;
+}
+
+.recovery-notice {
+  width: calc(100% - (2 * var(--ui-space-6)));
+  flex-shrink: 0;
+  margin-top: var(--ui-space-4);
+  border-color: var(--ui-warning);
+  background: var(--ui-warning-soft);
+}
+
+.recovery-notice__manifest {
+  margin: var(--ui-space-2) 0;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border-radius: var(--ui-radius-m);
+  background: var(--ui-elevated-1);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.quarantine-review {
+  max-width: 620px;
+}
+
+.quarantine-review__summary {
+  margin-bottom: var(--ui-space-3);
+}
+
+.quarantine-review__list-wrap {
+  padding: var(--ui-space-3);
+  border-radius: var(--ui-radius-m);
+  background: var(--ui-elevated-1);
+  margin-bottom: var(--ui-space-4);
+}
+
+.quarantine-review__failures[hidden] { display: none; }
+
+.quarantine-review__failures {
+  margin-bottom: var(--ui-space-4);
+  padding: var(--ui-space-3);
+  border: 1px solid var(--ui-error);
+  border-radius: var(--ui-radius-m);
+  background: var(--ui-error-soft);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 
 /* -- MODAL --------------------------------------------------------------- */
 .modal-overlay {
@@ -1304,101 +1499,6 @@ html, body {
   gap: var(--ui-space-3);
   justify-content: flex-end;
 }
-
-/* -- DELETE MODAL -------------------------------------------------------- */
-.delete-modal {
-  max-width: 420px;
-}
-
-.delete-modal__count {
-  margin-bottom: var(--ui-space-2);
-}
-
-.delete-modal__prompt {
-  color: var(--ui-text-mute);
-  font-size: var(--ui-font-s);
-}
-
-.delete-modal__options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-space-3);
-  margin-bottom: var(--ui-space-5);
-}
-
-.delete-modal__option {
-  display: flex;
-  align-items: center;
-  gap: var(--ui-space-4);
-  padding: var(--ui-space-4);
-  background: var(--ui-elevated-1);
-  border: 2px solid var(--ui-border-color-med);
-  border-radius: var(--ui-radius-l);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--ui-motion-fast);
-}
-
-.delete-modal__option:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--ui-shadow-2);
-}
-
-.delete-modal__option:focus-visible {
-  outline: 2px solid var(--ui-state-focus-ring);
-  outline-offset: 2px;
-}
-
-.delete-modal__option--move:hover {
-  border-color: var(--ui-accent);
-  background: var(--ui-accent-faint);
-}
-
-.delete-modal__option--delete:hover {
-  border-color: var(--ui-error);
-  background: var(--ui-error-soft);
-}
-
-.delete-modal__option-icon {
-  font-size: 1.75rem;
-  flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ui-elevated-3);
-  border-radius: var(--ui-radius-m);
-}
-
-.delete-modal__option--move:hover .delete-modal__option-icon {
-  background: var(--ui-accent-soft);
-}
-
-.delete-modal__option--delete:hover .delete-modal__option-icon {
-  background: var(--ui-error-soft);
-}
-
-.delete-modal__option-content {
-  flex: 1;
-}
-
-.delete-modal__option-title {
-  font-size: var(--ui-font-m);
-  font-weight: var(--ui-font-weight-l);
-  color: var(--ui-text-strong);
-  margin-bottom: var(--ui-space-1);
-}
-
-.delete-modal__option--delete .delete-modal__option-title {
-  color: var(--ui-error);
-}
-
-.delete-modal__option-desc {
-  font-size: var(--ui-font-s);
-  color: var(--ui-text-mute);
-}
-
 
 /* -- CONTEXT MENU -------------------------------------------------------- */
 .context-menu {
@@ -2019,13 +2119,15 @@ html, body {
     <!-- Header -->
     <header class="app__header">
       <h1 class="app__title">Duplicate Image Finder</h1>
-      <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme">
+      <button class="theme-toggle" id="themeToggle" type="button" title="Toggle theme" aria-label="Toggle color theme">
         <span class="theme-toggle__label" id="themeLabel">Dark</span>
         <div class="theme-toggle__pill">
           <div class="theme-toggle__thumb"></div>
         </div>
       </button>
     </header>
+
+    <div class="operation-failures recovery-notice" id="recoveryNotice" role="alert" hidden></div>
 
     <!-- Main Content -->
     <main class="app__main">
@@ -2096,7 +2198,7 @@ html, body {
       <!-- Scanning Screen -->
       <section id="scanningScreen" class="screen scanning">
         <div class="scanning__container">
-          <h2 class="scanning__heading" id="scanHeading">Initializing...</h2>
+          <h2 class="scanning__heading" id="scanHeading" aria-live="polite">Initializing...</h2>
 
           <div class="scanning__loader" id="scanLoader">
             <div class="scanning__spinner"></div>
@@ -2106,7 +2208,7 @@ html, body {
             <div class="scanning__progress-bar">
               <div class="scanning__progress-fill" id="progressFill" style="width: 0%"></div>
             </div>
-            <div class="scanning__time-estimate" id="timeEstimate"></div>
+            <div class="scanning__time-estimate" id="timeEstimate" aria-live="polite"></div>
           </div>
 
           <div class="scanning__actions">
@@ -2126,7 +2228,7 @@ html, body {
           <div class="results__nav">
             <button class="btn btn--secondary btn--small" id="firstClusterBtn">&laquo; First</button>
             <button class="btn btn--secondary btn--small" id="prevClusterBtn">&larr; Previous</button>
-            <span class="results__nav-text" id="clusterNav">1 of 0</span>
+            <span class="results__nav-text" id="clusterNav" aria-live="polite">0 of 0</span>
             <button class="btn btn--secondary btn--small" id="nextClusterBtn">Next &rarr;</button>
             <button class="btn btn--secondary btn--small" id="lastClusterBtn">Last &raquo;</button>
           </div>
@@ -2135,109 +2237,113 @@ html, body {
             <!-- Filter Split Button -->
             <div style="position: relative; z-index: 1000;">
               <div class="ui-split" id="filterSplitBtn">
-                <button class="ui-split__main" type="button" id="filterMainBtn">
-                  Hide/Show
+                <button class="ui-split__main" type="button" id="filterMainBtn"
+                        aria-haspopup="menu" aria-controls="filterMenu" aria-expanded="false">
+                  Filter: All
                 </button>
-                <button class="ui-split__arrow" type="button" id="filterToggleBtn">
+                <button class="ui-split__arrow" type="button" id="filterToggleBtn" aria-label="Open result filters"
+                        aria-haspopup="menu" aria-controls="filterMenu" aria-expanded="false">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="6 9 12 15 18 9"></polyline>
                   </svg>
                 </button>
               </div>
-              <div class="ui-menu" id="filterMenu">
-                <button class="ui-menu__item" data-filter="perfect">Only 100%</button>
-                <button class="ui-menu__item" data-filter="non-perfect">Only 99% or less</button>
-                <button class="ui-menu__item" data-filter="all">Reset</button>
+              <div class="ui-menu" id="filterMenu" role="menu" aria-hidden="true" inert>
+                <button class="ui-menu__item ui-menu__item--selected" role="menuitemradio" aria-checked="true" data-filter="all">All results</button>
+                <button class="ui-menu__item" role="menuitemradio" aria-checked="false" data-filter="exact">Byte-exact</button>
+                <button class="ui-menu__item" role="menuitemradio" aria-checked="false" data-filter="pixel">Pixel-identical</button>
+                <button class="ui-menu__item" role="menuitemradio" aria-checked="false" data-filter="review">Variants / Review</button>
               </div>
             </div>
 
             <!-- Auto-mark Split Button -->
             <div style="position: relative; z-index: 1000;">
               <div class="ui-split" id="automarkSplitBtn">
-                <button class="ui-split__main" type="button" id="automarkMainBtn">
+                <button class="ui-split__main" type="button" id="automarkMainBtn"
+                        aria-haspopup="menu" aria-controls="automarkMenu" aria-expanded="false">
                   Mark Options
                 </button>
-                <button class="ui-split__arrow" type="button" id="automarkToggleBtn">
+                <button class="ui-split__arrow" type="button" id="automarkToggleBtn" aria-label="Open mark options"
+                        aria-haspopup="menu" aria-controls="automarkMenu" aria-expanded="false">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="6 9 12 15 18 9"></polyline>
                   </svg>
                 </button>
               </div>
-              <div class="ui-menu" id="automarkMenu">
-                <button class="ui-menu__item" data-action="mark-all-perfect">Mark all 100%</button>
-                <button class="ui-menu__item" data-action="mark-all-imperfect">Mark all 99% or less</button>
-                <button class="ui-menu__item" data-action="reset">Reset</button>
+              <div class="ui-menu" id="automarkMenu" role="menu" aria-hidden="true" inert>
+                <button class="ui-menu__item" role="menuitem" data-action="mark-exact">Mark byte-exact copies</button>
+                <button class="ui-menu__item" role="menuitem" data-action="reset">Reset</button>
               </div>
             </div>
 
-            <button class="btn btn--danger btn--small" id="deleteMarkedBtn">Delete Marked</button>
+            <button class="btn btn--danger btn--small" id="reviewQuarantineBtn">Review Quarantine</button>
           </div>
         </div>
 
         <div class="results__instructions">
-          Click to mark for deletion &bull; Double-click to compare &bull; Arrow keys to navigate groups &bull;
-          C to compare &bull; Blue = reference &bull; Red = marked
+          Use each card's buttons to compare or mark for quarantine &bull; Arrow keys navigate groups &bull;
+          Blue = comparison reference &bull; Red = marked for quarantine
         </div>
+
+        <div class="operation-failures" id="operationFailures" role="alert" hidden></div>
 
         <div class="results__grid-container">
           <div class="results__grid" id="imageGrid"></div>
         </div>
 
         <div class="results__footer">
-          <button class="btn btn--secondary" id="undoBtn" disabled>Undo Last Deletion</button>
+          <div class="results__footer-note" id="startOverSafetyHint" role="status" hidden>
+            Undo Last Quarantine before starting over. To leave without undoing, close this app window intentionally.
+          </div>
+          <button class="btn btn--secondary" id="undoBtn" disabled>Undo Last Quarantine</button>
           <button class="btn btn--secondary" id="startOverBtn">Start Over</button>
         </div>
       </section>
     </main>
   </div>
 
-  <!-- Delete Confirmation Modal -->
-  <div class="modal-overlay" id="deleteModal">
-    <div class="modal delete-modal">
-      <h3 class="modal__title">Delete Marked Files</h3>
-      <div class="modal__content" id="deleteModalContent">
-        <p class="delete-modal__count">You have <strong id="deleteFileCount">0</strong> file(s) marked for deletion.</p>
-        <p class="delete-modal__prompt">Choose how to handle them:</p>
-      </div>
-      <div class="delete-modal__options">
-        <button class="delete-modal__option delete-modal__option--move" id="moveToFolderBtn">
-          <div class="delete-modal__option-icon">📁</div>
-          <div class="delete-modal__option-content">
-            <div class="delete-modal__option-title">Move to _dupes folder</div>
-            <div class="delete-modal__option-desc">Files can be recovered later</div>
-          </div>
-        </button>
-        <button class="delete-modal__option delete-modal__option--delete" id="permanentDeleteBtn">
-          <div class="delete-modal__option-icon">🗑️</div>
-          <div class="delete-modal__option-content">
-            <div class="delete-modal__option-title">Permanently Delete</div>
-            <div class="delete-modal__option-desc">Files will be gone forever</div>
-          </div>
-        </button>
+  <!-- Immutable quarantine review modal -->
+  <div class="modal-overlay" id="quarantineModal" role="dialog" aria-modal="true"
+       aria-labelledby="quarantineTitle" aria-describedby="quarantineSummary" aria-hidden="true" inert>
+    <div class="modal quarantine-review" tabindex="-1" id="quarantineDialog">
+      <h3 class="modal__title" id="quarantineTitle">Review Quarantine</h3>
+      <div class="modal__content">
+        <p class="quarantine-review__summary" id="quarantineSummary">
+          The server prepared an immutable snapshot of <strong id="quarantineFileCount">0</strong> file(s).
+        </p>
+        <p class="verification-text">
+          All-frame pixel matches mean decoded visual content matches; metadata or encoding may differ. Manual review is still required.
+        </p>
+        <div class="quarantine-review__list-wrap">
+          <ol class="quarantine-review__list" id="quarantineFileList"></ol>
+        </div>
+        <div class="quarantine-review__failures" id="quarantineFailures" role="alert" hidden></div>
       </div>
       <div class="modal__actions">
-        <button class="btn btn--secondary" id="cancelDeleteBtn">Cancel</button>
+        <button class="btn btn--secondary" id="cancelQuarantineBtn">Cancel</button>
+        <button class="btn btn--danger" id="commitQuarantineBtn">Move to Quarantine</button>
       </div>
     </div>
   </div>
 
   <!-- Context Menu -->
-  <div class="context-menu" id="contextMenu">
-    <button class="context-menu__item" data-action="compare">Compare with Reference</button>
+  <div class="context-menu" id="contextMenu" role="menu" aria-hidden="true" inert>
+    <button class="context-menu__item" role="menuitem" data-action="compare">Compare with Reference</button>
     <div class="context-menu__divider"></div>
-    <button class="context-menu__item" data-action="open-folder">Show in Folder</button>
-    <button class="context-menu__item" data-action="open-image">Open Image</button>
-    <button class="context-menu__item context-menu__item--danger" data-action="toggle-mark" id="contextMarkLabel">Mark for Deletion</button>
+    <button class="context-menu__item" role="menuitem" data-action="open-folder">Show in Folder</button>
+    <button class="context-menu__item" role="menuitem" data-action="open-image">Open Image</button>
+    <button class="context-menu__item context-menu__item--danger" role="menuitem" data-action="toggle-mark" id="contextMarkLabel">Mark for Quarantine</button>
   </div>
 
   <!-- Toast Container -->
-  <div class="toast-container" id="toastContainer"></div>
+  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
   <!-- Comparison Modal -->
-  <div class="compare-overlay" id="compareModal">
+  <div class="compare-overlay" id="compareModal" role="dialog" aria-modal="true"
+       aria-labelledby="compareTitle" aria-hidden="true" inert>
     <div class="compare">
       <div class="compare__header">
-        <h2 class="compare__title">Compare Images</h2>
+        <h2 class="compare__title" id="compareTitle">Compare Images</h2>
         <button class="compare__close" id="compareCloseBtn">Close</button>
       </div>
 
@@ -2254,6 +2360,10 @@ html, body {
           </div>
           <div class="compare__info-card">
             <div class="compare__filename" id="compareNameLeft"></div>
+            <div class="compare__relative-path" id="compareRelativeLeft"></div>
+            <div class="compare__path" id="comparePathLeft"></div>
+            <div class="compare__kind-row" id="compareKindLeft"></div>
+            <div class="verification-text" id="compareVerificationLeft"></div>
             <div class="compare__stats">
               <div class="compare__stat">
                 <span class="compare__stat-label">Resolution</span>
@@ -2271,8 +2381,16 @@ html, body {
                 <span class="compare__stat-label">Type</span>
                 <span class="compare__stat-value" id="compareTypeLeft"></span>
               </div>
+              <div class="compare__stat">
+                <span class="compare__stat-label">Frames / pages</span>
+                <span class="compare__stat-value" id="compareFramesLeft"></span>
+              </div>
+              <div class="compare__stat">
+                <span class="compare__stat-label">Alpha</span>
+                <span class="compare__stat-value" id="compareAlphaLeft"></span>
+              </div>
             </div>
-            <button class="btn btn--primary compare__action-btn" id="compareKeepLeft">Keep This</button>
+            <button class="btn btn--secondary compare__action-btn" id="compareMarkLeft">Mark Left for Quarantine</button>
           </div>
         </div>
 
@@ -2286,6 +2404,10 @@ html, body {
           </div>
           <div class="compare__info-card">
             <div class="compare__filename" id="compareNameRight"></div>
+            <div class="compare__relative-path" id="compareRelativeRight"></div>
+            <div class="compare__path" id="comparePathRight"></div>
+            <div class="compare__kind-row" id="compareKindRight"></div>
+            <div class="verification-text" id="compareVerificationRight"></div>
             <div class="compare__stats">
               <div class="compare__stat">
                 <span class="compare__stat-label">Resolution</span>
@@ -2303,8 +2425,16 @@ html, body {
                 <span class="compare__stat-label">Type</span>
                 <span class="compare__stat-value" id="compareTypeRight"></span>
               </div>
+              <div class="compare__stat">
+                <span class="compare__stat-label">Frames / pages</span>
+                <span class="compare__stat-value" id="compareFramesRight"></span>
+              </div>
+              <div class="compare__stat">
+                <span class="compare__stat-label">Alpha</span>
+                <span class="compare__stat-value" id="compareAlphaRight"></span>
+              </div>
             </div>
-            <button class="btn btn--danger compare__action-btn" id="compareKeepRight">Mark for Deletion</button>
+            <button class="btn btn--secondary compare__action-btn" id="compareMarkRight">Mark Right for Quarantine</button>
           </div>
         </div>
       </div>
@@ -2316,7 +2446,7 @@ html, body {
       </div>
 
       <div class="compare__footer">
-        <div class="compare__similarity" id="compareSimilarity">Similarity: 100%</div>
+        <div class="compare__similarity" id="compareSimilarity" role="status">No direct score</div>
         <div class="compare__nav">
           <button class="btn btn--secondary btn--small" id="comparePrevBtn">Previous Pair</button>
           <button class="btn btn--secondary btn--small" id="compareSwapBtn">Swap</button>
@@ -2327,62 +2457,126 @@ html, body {
   </div>
 
   <script>
-/* ========================================================================
- * DUPLICATE IMAGE FINDER - V2 WEB UI
- * JavaScript Application Logic
- * ======================================================================== */
+'use strict';
 
 const API_BASE = '';
+const API_TOKEN = document.querySelector('meta[name="dupefinder-api-token"]')?.content || '';
 
-// Heartbeat to keep server alive (server shuts down if no heartbeat for 15s)
-setInterval(() => {
-  fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
-}, 5000); // Send heartbeat every 5 seconds
+function apiTokenReady() {
+  return Boolean(API_TOKEN) && !API_TOKEN.startsWith('__DUPEFINDER_');
+}
+const FILTER_LABELS = {
+  all: 'All',
+  exact: 'Byte-exact',
+  pixel: 'Pixel-identical',
+  review: 'Variants / Review'
+};
+const KIND_DETAILS = {
+  exact: {
+    label: 'Byte-exact',
+    badgeClass: 'match-badge--exact',
+    description: 'The complete file bytes match.'
+  },
+  pixel_duplicate: {
+    label: 'All-frame pixel match',
+    badgeClass: 'match-badge--pixel',
+    description: 'Decoded visual content matches across every frame/page, but metadata or encoding may differ. Manual review required.'
+  },
+  variant: {
+    label: 'Geometry-verified variant',
+    badgeClass: 'match-badge--variant',
+    description: 'Geometric verification found related visual content. Manual review required.'
+  },
+  indirect: {
+    label: 'Indirect link',
+    badgeClass: 'match-badge--indirect',
+    description: 'This member is linked through another result. There is no direct score against the comparison reference.'
+  },
+  reference: {
+    label: 'Comparison reference',
+    badgeClass: 'match-badge--reference',
+    description: 'This image anchors comparisons in this group. It is not a quality recommendation.'
+  }
+};
 
-// Detect when tab/window is closing and stop sending heartbeats
-window.addEventListener('beforeunload', () => {
-  // Send shutdown signal (use sendBeacon for reliability during page unload)
-  console.log('Page unloading - sending shutdown signal');
-  navigator.sendBeacon('/api/shutdown');
-});
+class ApiError extends Error {
+  constructor(message, status, payload) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
 
-// State
+const SESSION_STORAGE_KEY = 'dupefinder-active-session';
 let sessionId = null;
+let folderToken = null;
+let selectedFolderDisplay = '';
 let clusters = [];
+let markedResultIds = new Set();
 let currentClusterIndex = 0;
-let markedFiles = new Set();
+let currentFilter = 'all';
 let canUndo = false;
-let selectedFolder = '';
-let isPaused = false;
-let startTime = null;
+let recoveryRequired = false;
+let recoveryManifestPath = '';
+let recoverySummary = '';
+let sessionRestoreBlocked = false;
+let sessionRestoreError = '';
+let activeEventSource = null;
+let scanGeneration = 0;
+let scanState = 'idle';
+let currentScanStage = 'Initializing...';
+let cancelRequestPending = false;
+let markingRequestPending = false;
+let operationRequestPending = false;
+let quarantineSelectionToken = null;
+let quarantinePreviousFocus = null;
+
 let totalFiles = 0;
 let processedFiles = 0;
-let currentFilter = 'all'; // 'all', 'perfect', 'non-perfect'
-
-// Comparison state
-let compareLeftMember = null;
-let compareRightMember = null;
-let compareMode = 'side-by-side'; // 'side-by-side', 'overlay', 'swipe'
-let compareZoom = 1;
-let comparePan = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
-let compareIsDragging = false;
-let compareDragSide = 'left'; // Which side is being dragged
-let compareDragStart = { x: 0, y: 0 };
-let compareNonRefMembers = []; // All members except reference, for navigation
-let compareCurrentPairIndex = 0;
-let compareSwipeDragging = false;
-let compareSwipePosition = 50; // Percentage position of swipe divider
-
-// Time estimation state
 let lastProgressTime = null;
 let lastProgressCount = 0;
+let lastProgressTotal = 0;
 let smoothedRate = null;
 let progressSamples = [];
-const RATE_SMOOTHING_FACTOR = 0.3; // Lower = smoother, higher = more responsive
+const RATE_SMOOTHING_FACTOR = 0.3;
 const MIN_SAMPLES_FOR_ESTIMATE = 3;
 const MAX_SAMPLES = 10;
 
-// DOM Elements
+let contextMenuTargetId = null;
+
+let compareClusterId = null;
+let compareReferenceId = null;
+let compareMemberIds = [];
+let compareCurrentPairIndex = 0;
+let compareSwapped = false;
+let compareMode = 'side-by-side';
+let compareZoom = 1;
+let comparePan = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
+let compareIsDragging = false;
+let compareDragSide = 'left';
+let compareDragStart = { x: 0, y: 0 };
+let compareSwipeDragging = false;
+let compareSwipePosition = 50;
+
+function rememberSession(value) {
+  sessionId = value ? String(value) : null;
+  try {
+    if (sessionId) sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+    else sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (_error) {
+    // The app still works if a browser policy disables session storage.
+  }
+}
+
+function rememberedSession() {
+  try {
+    return sessionStorage.getItem(SESSION_STORAGE_KEY) || '';
+  } catch (_error) {
+    return '';
+  }
+}
+
 const screens = {
   setup: document.getElementById('setupScreen'),
   scanning: document.getElementById('scanningScreen'),
@@ -2416,21 +2610,24 @@ const elements = {
   automarkMainBtn: document.getElementById('automarkMainBtn'),
   automarkToggleBtn: document.getElementById('automarkToggleBtn'),
   automarkMenu: document.getElementById('automarkMenu'),
-  deleteMarkedBtn: document.getElementById('deleteMarkedBtn'),
+  reviewQuarantineBtn: document.getElementById('reviewQuarantineBtn'),
   undoBtn: document.getElementById('undoBtn'),
   startOverBtn: document.getElementById('startOverBtn'),
-  deleteModal: document.getElementById('deleteModal'),
-  deleteModalContent: document.getElementById('deleteModalContent'),
-  deleteFileCount: document.getElementById('deleteFileCount'),
-  cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
-  moveToFolderBtn: document.getElementById('moveToFolderBtn'),
-  permanentDeleteBtn: document.getElementById('permanentDeleteBtn'),
+  startOverSafetyHint: document.getElementById('startOverSafetyHint'),
+  recoveryNotice: document.getElementById('recoveryNotice'),
+  operationFailures: document.getElementById('operationFailures'),
+  quarantineModal: document.getElementById('quarantineModal'),
+  quarantineDialog: document.getElementById('quarantineDialog'),
+  quarantineFileCount: document.getElementById('quarantineFileCount'),
+  quarantineFileList: document.getElementById('quarantineFileList'),
+  quarantineFailures: document.getElementById('quarantineFailures'),
+  cancelQuarantineBtn: document.getElementById('cancelQuarantineBtn'),
+  commitQuarantineBtn: document.getElementById('commitQuarantineBtn'),
   themeToggle: document.getElementById('themeToggle'),
   themeLabel: document.getElementById('themeLabel'),
   toastContainer: document.getElementById('toastContainer'),
   contextMenu: document.getElementById('contextMenu'),
   contextMarkLabel: document.getElementById('contextMarkLabel'),
-  // Comparison modal elements
   compareModal: document.getElementById('compareModal'),
   compareCloseBtn: document.getElementById('compareCloseBtn'),
   compareImageLeft: document.getElementById('compareImageLeft'),
@@ -2439,6 +2636,14 @@ const elements = {
   compareWrapperRight: document.getElementById('compareWrapperRight'),
   compareNameLeft: document.getElementById('compareNameLeft'),
   compareNameRight: document.getElementById('compareNameRight'),
+  compareRelativeLeft: document.getElementById('compareRelativeLeft'),
+  compareRelativeRight: document.getElementById('compareRelativeRight'),
+  comparePathLeft: document.getElementById('comparePathLeft'),
+  comparePathRight: document.getElementById('comparePathRight'),
+  compareKindLeft: document.getElementById('compareKindLeft'),
+  compareKindRight: document.getElementById('compareKindRight'),
+  compareVerificationLeft: document.getElementById('compareVerificationLeft'),
+  compareVerificationRight: document.getElementById('compareVerificationRight'),
   compareDimsLeft: document.getElementById('compareDimsLeft'),
   compareDimsRight: document.getElementById('compareDimsRight'),
   compareSizeLeft: document.getElementById('compareSizeLeft'),
@@ -2447,8 +2652,12 @@ const elements = {
   compareDateRight: document.getElementById('compareDateRight'),
   compareTypeLeft: document.getElementById('compareTypeLeft'),
   compareTypeRight: document.getElementById('compareTypeRight'),
-  compareKeepLeft: document.getElementById('compareKeepLeft'),
-  compareKeepRight: document.getElementById('compareKeepRight'),
+  compareFramesLeft: document.getElementById('compareFramesLeft'),
+  compareFramesRight: document.getElementById('compareFramesRight'),
+  compareAlphaLeft: document.getElementById('compareAlphaLeft'),
+  compareAlphaRight: document.getElementById('compareAlphaRight'),
+  compareMarkLeft: document.getElementById('compareMarkLeft'),
+  compareMarkRight: document.getElementById('compareMarkRight'),
   compareSimilarity: document.getElementById('compareSimilarity'),
   comparePrevBtn: document.getElementById('comparePrevBtn'),
   compareNextBtn: document.getElementById('compareNextBtn'),
@@ -2459,223 +2668,504 @@ const elements = {
   compareDivider: document.getElementById('compareDivider')
 };
 
-// Context menu state
-let contextMenuTarget = null;  // { path, index }
+function safeDisplayText(value) {
+  return String(value).replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, character => {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === 0x09) return '\\t';
+    if (codePoint === 0x0a) return '\\n';
+    if (codePoint === 0x0d) return '\\r';
+    return `\\u${codePoint.toString(16).padStart(4, '0')}`;
+  });
+}
 
+function setDisplayText(node, value) {
+  node.textContent = safeDisplayText(value);
+  node.dir = 'auto';
+}
 
-/* -- UTILITIES ----------------------------------------------------------- */
+function createElement(tagName, className, text) {
+  const node = document.createElement(tagName);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) setDisplayText(node, text);
+  return node;
+}
+
+function clearNode(node) {
+  node.replaceChildren();
+}
+
 function showScreen(name) {
-  const transitionDuration = 400; // Match CSS transition duration
-
-  Object.keys(screens).forEach(key => {
-    const screen = screens[key];
-    const isTarget = key === name;
-    const isCurrentlyActive = screen.classList.contains('screen--active');
-
-    if (isCurrentlyActive && !isTarget) {
-      // Animate out the current screen
-      screen.classList.add('screen--exiting');
-      screen.classList.remove('screen--active');
-
-      // Clean up exiting class after animation
-      setTimeout(() => {
-        screen.classList.remove('screen--exiting');
-      }, transitionDuration);
-    } else if (isTarget && !isCurrentlyActive) {
-      // Slight delay before showing new screen for smoother crossfade
-      setTimeout(() => {
-        screen.classList.add('screen--active');
-      }, transitionDuration / 3);
-    }
+  Object.entries(screens).forEach(([key, screen]) => {
+    screen.classList.remove('screen--exiting');
+    screen.classList.toggle('screen--active', key === name);
   });
 }
 
 function showToast(message, type = 'info') {
-  const toast = document.createElement('div');
-  toast.className = `toast toast--${type}`;
-  toast.textContent = message;
+  const toast = createElement('div', `toast toast--${type}`, message);
   elements.toastContainer.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
+  window.setTimeout(() => toast.remove(), 5000);
+}
+
+function apiErrorMessage(payload, fallback) {
+  if (payload && typeof payload === 'object') {
+    return payload.error || payload.message || fallback;
+  }
+  return fallback;
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set('X-DupeFinder-Token', API_TOKEN);
+  let body = options.body;
+  if (body !== undefined && body !== null && typeof body !== 'string' && !(body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+    body = JSON.stringify(body);
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers, body });
+  const contentType = response.headers.get('content-type') || '';
+  let payload = null;
+  if (response.status !== 204) {
+    if (contentType.includes('application/json')) {
+      payload = await response.json();
+    } else {
+      const text = await response.text();
+      payload = text ? { error: text } : null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new ApiError(apiErrorMessage(payload, `Request failed (${response.status})`), response.status, payload);
+  }
+  return payload || {};
+}
+
+function tokenizedUrl(path, parameters) {
+  const query = new URLSearchParams({ ...parameters, token: API_TOKEN });
+  return `${API_BASE}${path}?${query.toString()}`;
+}
+
+function thumbnailUrl(resultId, size) {
+  return tokenizedUrl('/api/thumbnail', {
+    session_id: sessionId || '',
+    result_id: resultId,
+    size: String(size)
+  });
 }
 
 function formatBytes(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  if (bytes === null || bytes === undefined || bytes === '') return 'Unknown';
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return 'Unknown';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function formatDate(timestamp) {
-  const date = new Date(timestamp * 1000);
-  const now = new Date();
-  const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
-  return `${Math.floor(diffDays / 365)}y ago`;
+function formatExactDate(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === '') return 'Unknown';
+  const numeric = Number(timestamp);
+  if (!Number.isFinite(numeric)) return 'Unknown';
+  const milliseconds = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const date = new Date(milliseconds);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZoneName: 'short'
+  });
 }
 
-function formatTimeRemaining(seconds) {
-  if (isPaused) return 'Paused';
-  if (!seconds || seconds < 1) return '';
+function frameCountText(member) {
+  const count = Number(member.frame_count);
+  return Number.isInteger(count) && count > 0 ? String(count) : 'Unknown';
+}
 
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
+function alphaText(member) {
+  if (member.has_alpha === true) return 'Yes';
+  if (member.has_alpha === false) return 'No';
+  return 'Unknown';
+}
 
-  if (mins === 0) {
-    return `${secs} sec left`;
-  } else if (secs === 0) {
-    return mins === 1 ? '1 min left' : `${mins} min left`;
-  } else {
-    const minText = mins === 1 ? '1 min' : `${mins} min`;
-    return `${minText} ${secs} sec left`;
+function dimensionText(member) {
+  const width = Number(member.width);
+  const height = Number(member.height);
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) return 'Unknown';
+  const dimensions = `${width} × ${height}`;
+  return Number(member.frame_count) > 1 ? `${dimensions} (first frame/page)` : dimensions;
+}
+
+function formatVerification(verification) {
+  if (verification === null || verification === undefined || verification === '') return 'Verification: not provided';
+  if (typeof verification === 'string') return `Verification: ${verification}`;
+  if (typeof verification === 'object') {
+    const parts = Object.entries(verification)
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([key, value]) => `${key.replaceAll('_', ' ')}: ${String(value)}`);
+    return parts.length ? `Verification: ${parts.join(' · ')}` : 'Verification: not provided';
   }
+  return `Verification: ${String(verification)}`;
 }
 
-function resetTimeEstimation() {
-  lastProgressTime = null;
-  lastProgressCount = 0;
-  smoothedRate = null;
-  progressSamples = [];
+function normaliseMember(member) {
+  return { ...member, id: String(member.id) };
 }
 
-function updateTimeEstimate(currentCount, total) {
-  const now = Date.now();
+function normaliseClusters(rawClusters) {
+  if (!Array.isArray(rawClusters)) throw new Error('Server response did not include a valid cluster list');
+  return rawClusters.map(cluster => ({
+    ...cluster,
+    id: String(cluster.id),
+    representative_id: cluster.representative_id === null || cluster.representative_id === undefined
+      ? null
+      : String(cluster.representative_id),
+    members: Array.isArray(cluster.members) ? cluster.members.map(normaliseMember) : [],
+    kinds: Array.isArray(cluster.kinds) ? [...cluster.kinds] : []
+  }));
+}
 
-  // First update - just record the time
-  if (lastProgressTime === null) {
-    lastProgressTime = now;
-    lastProgressCount = currentCount;
-    return 'Calculating...';
+function markedIdsFromPayload(payload, required = true) {
+  const marked = payload?.marked_ids ?? payload?.marked_result_ids ?? payload?.marked;
+  if (!Array.isArray(marked)) {
+    if (required) throw new Error('Server response omitted authoritative marked IDs');
+    return null;
+  }
+  return marked.map(String);
+}
+
+function extractFailures(payload) {
+  if (!payload || typeof payload !== 'object') return [];
+  const failures = [];
+  const append = candidate => {
+    if (Array.isArray(candidate)) failures.push(...candidate);
+    else if (candidate && typeof candidate === 'object') failures.push(candidate);
+  };
+  append(payload.failed);
+  append(payload.failures);
+  append(payload.rejected);
+  append(payload.failure);
+  append(payload.rollback_failures);
+  append(payload.undo_failure);
+  append(payload.undo_rollback_failures);
+  append(payload.details?.failed);
+  append(payload.details?.failures);
+  append(payload.details?.rejected);
+  if (failures.length) return failures;
+  const count = Number(payload.failed_count ?? (typeof payload.failed === 'number' ? payload.failed : 0));
+  return count > 0 ? [{ error: `${count} operation(s) failed without item details` }] : [];
+}
+
+function failureText(item) {
+  if (typeof item === 'string') return item;
+  if (!item || typeof item !== 'object') return 'Unknown failure';
+  const target = item.relative_path || item.name || item.result_id || item.id || 'Item';
+  const reason = item.error || item.message || 'Unknown failure';
+  return `${target}: ${reason}`;
+}
+
+function renderFailureRegion(container, failures, title) {
+  clearNode(container);
+  if (!failures.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.appendChild(createElement('div', 'operation-failures__title', title));
+  const list = createElement('ul', 'operation-failures__list');
+  failures.forEach(item => list.appendChild(createElement('li', '', failureText(item))));
+  container.appendChild(list);
+}
+
+function clearOperationFailures() {
+  renderFailureRegion(elements.operationFailures, [], '');
+}
+
+function renderRecoveryNotice() {
+  clearNode(elements.recoveryNotice);
+  const noticeRequired = recoveryRequired || sessionRestoreBlocked;
+  elements.recoveryNotice.hidden = !noticeRequired;
+  if (!noticeRequired) return;
+
+  if (sessionRestoreBlocked && !recoveryRequired) {
+    elements.recoveryNotice.appendChild(createElement(
+      'div',
+      'operation-failures__title',
+      'The previous session could not be verified. New scans are locked.'
+    ));
+    elements.recoveryNotice.appendChild(createElement(
+      'div',
+      '',
+      sessionRestoreError || 'The server did not return authoritative state for the remembered session.'
+    ));
+    elements.recoveryNotice.appendChild(createElement(
+      'div',
+      '',
+      'Reload this page to retry. The remembered session is retained so a transient error cannot hide an available Undo.'
+    ));
+    return;
   }
 
-  // Calculate instantaneous rate (items per second)
-  const timeDelta = (now - lastProgressTime) / 1000;
-  const countDelta = currentCount - lastProgressCount;
+  elements.recoveryNotice.appendChild(createElement(
+    'div',
+    'operation-failures__title',
+    'Manual recovery required. Automated file actions are locked.'
+  ));
+  elements.recoveryNotice.appendChild(createElement(
+    'div',
+    '',
+    recoverySummary || 'The server could not establish one safe, fully reconciled file state.'
+  ));
+  const manifest = createElement(
+    'div',
+    'recovery-notice__manifest',
+    recoveryManifestPath ? `Recovery manifest: ${recoveryManifestPath}` : 'Recovery manifest path was not provided.'
+  );
+  manifest.title = safeDisplayText(recoveryManifestPath || 'Recovery manifest path was not provided');
+  elements.recoveryNotice.appendChild(manifest);
+  elements.recoveryNotice.appendChild(createElement(
+    'div',
+    '',
+    'Review the manifest and file locations manually. Do not mark, quarantine, undo, or start over. Close this app window intentionally when you are ready to leave the locked session.'
+  ));
+}
 
-  // Avoid division by zero and skip if no progress
-  if (timeDelta < 0.1 || countDelta <= 0) {
-    // Return previous estimate if we have one
-    if (smoothedRate !== null && progressSamples.length >= MIN_SAMPLES_FOR_ESTIMATE) {
-      const remaining = (total - currentCount) / smoothedRate;
-      return formatTimeRemaining(remaining);
+function applyRecoveryState(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  if (typeof payload.recovery_required === 'boolean') {
+    recoveryRequired = payload.recovery_required;
+    if (recoveryRequired) {
+      recoveryManifestPath = String(payload.recovery_manifest_path ?? payload.manifest_path ?? '');
+      recoverySummary = String(payload.recovery_summary ?? '');
+    } else {
+      recoveryManifestPath = '';
+      recoverySummary = '';
     }
-    return 'Calculating...';
+  } else if (recoveryRequired) {
+    if (Object.hasOwn(payload, 'recovery_manifest_path')) {
+      recoveryManifestPath = String(payload.recovery_manifest_path ?? '');
+    }
+    if (Object.hasOwn(payload, 'recovery_summary')) {
+      recoverySummary = String(payload.recovery_summary ?? '');
+    }
   }
-
-  const instantRate = countDelta / timeDelta;
-
-  // Add to samples for moving average
-  progressSamples.push(instantRate);
-  if (progressSamples.length > MAX_SAMPLES) {
-    progressSamples.shift();
+  renderRecoveryNotice();
+  if (recoveryRequired) {
+    if (quarantineModalOpen()) hideQuarantineModal();
+    hideContextMenu();
+    setDropdownOpen(
+      elements.automarkMenu,
+      document.getElementById('automarkSplitBtn'),
+      [elements.automarkMainBtn, elements.automarkToggleBtn],
+      false
+    );
   }
-
-  // Calculate moving average
-  const avgRate = progressSamples.reduce((a, b) => a + b, 0) / progressSamples.length;
-
-  // Apply exponential smoothing
-  if (smoothedRate === null) {
-    smoothedRate = avgRate;
-  } else {
-    smoothedRate = RATE_SMOOTHING_FACTOR * avgRate + (1 - RATE_SMOOTHING_FACTOR) * smoothedRate;
-  }
-
-  // Update for next calculation
-  lastProgressTime = now;
-  lastProgressCount = currentCount;
-
-  // Don't show estimate until we have enough samples
-  if (progressSamples.length < MIN_SAMPLES_FOR_ESTIMATE) {
-    return 'Calculating...';
-  }
-
-  // Calculate remaining time
-  const remaining = (total - currentCount) / smoothedRate;
-
-  // Sanity check - cap at reasonable maximum (2 hours)
-  if (remaining > 7200) {
-    return 'Calculating...';
-  }
-
-  return formatTimeRemaining(remaining);
+  elements.browseFolderBtn.disabled = recoveryRequired || sessionRestoreBlocked;
+  elements.startScanBtn.disabled = recoveryRequired || sessionRestoreBlocked || !folderToken;
+  if (elements.compareModal.classList.contains('compare-overlay--visible')) updateCompareView();
+  if (screens.results.classList.contains('screen--active')) updateStats(filteredClusterEntries());
 }
 
+function kindForMember(member) {
+  if (member.is_representative || member.match_kind === 'reference') return 'reference';
+  return KIND_DETAILS[member.match_kind] ? member.match_kind : 'indirect';
+}
 
-/* -- THEME --------------------------------------------------------------- */
+function makeKindBadge(member) {
+  const kind = kindForMember(member);
+  const details = KIND_DETAILS[kind];
+  const badge = createElement('span', `match-badge ${details.badgeClass}`, details.label);
+  badge.title = details.description;
+  return badge;
+}
+
+function peerCount(member, field) {
+  const count = Number(member?.[field]);
+  return Number.isInteger(count) && count > 0 ? count : 0;
+}
+
+function appendPeerBadges(container, member) {
+  const kind = kindForMember(member);
+  const exactPeers = peerCount(member, 'exact_peer_count');
+  const pixelPeers = peerCount(member, 'pixel_peer_count');
+  if (exactPeers > 0 && kind !== 'exact') {
+    const badge = createElement('span', 'match-badge match-badge--exact', `Byte-exact peer (${exactPeers})`);
+    badge.title = 'This file has one or more byte-exact peers in the group, independently of the comparison reference.';
+    container.appendChild(badge);
+  }
+  if (pixelPeers > 0 && kind !== 'pixel_duplicate') {
+    const badge = createElement('span', 'match-badge match-badge--pixel', `Pixel-identical peer (${pixelPeers})`);
+    badge.title = 'Decoded visual content matches across every frame/page, but metadata or encoding may differ. Manual review required.';
+    container.appendChild(badge);
+  }
+}
+
+function memberReviewText(member) {
+  const details = KIND_DETAILS[kindForMember(member)];
+  const verification = formatVerification(member.verification);
+  const peerWarning = peerCount(member, 'pixel_peer_count') > 0 && kindForMember(member) !== 'pixel_duplicate'
+    ? ' A pixel-identical peer has matching decoded visual content, but metadata or encoding may differ. Manual review required.'
+    : '';
+  return `${details.description}${peerWarning} ${verification}`;
+}
+
+function similarityText(member) {
+  const kind = kindForMember(member);
+  if (kind === 'reference') return 'Comparison reference';
+  if (kind === 'exact') return 'Byte-exact';
+  if (kind === 'pixel_duplicate') return 'All-frame pixel match · Review metadata/encoding';
+  if (kind === 'indirect') return 'No direct score · Indirect link';
+  if (member.similarity === null || member.similarity === undefined) return 'Direct score unavailable · Manual review';
+  const score = Number(member.similarity);
+  return Number.isFinite(score) ? `${(score * 100).toFixed(1)}% similarity · Manual review` : 'No direct score';
+}
+
+function referenceForCluster(cluster) {
+  return cluster.members.find(member => member.id === cluster.representative_id)
+    || cluster.members.find(member => member.is_representative)
+    || null;
+}
+
+function memberMatchesFilter(member) {
+  if (member.is_representative || member.match_kind === 'reference') return false;
+  if (currentFilter === 'all') return true;
+  if (currentFilter === 'exact') return member.match_kind === 'exact' || peerCount(member, 'exact_peer_count') > 0;
+  if (currentFilter === 'pixel') return member.match_kind === 'pixel_duplicate' || peerCount(member, 'pixel_peer_count') > 0;
+  return member.match_kind === 'variant' || member.match_kind === 'indirect';
+}
+
+function filteredClusterEntries() {
+  const entries = [];
+  clusters.forEach(cluster => {
+    const reference = referenceForCluster(cluster);
+    const matching = cluster.members.filter(memberMatchesFilter);
+    if (!matching.length) return;
+    const members = [];
+    if (reference) members.push(reference);
+    matching.forEach(member => {
+      if (!members.some(existing => existing.id === member.id)) members.push(member);
+    });
+    if (members.length > (reference ? 1 : 0)) entries.push({ cluster, reference, members, matchingCount: matching.length });
+  });
+  return entries;
+}
+
+function setAuthoritativeState(payload, options = {}) {
+  const { requireClusters = false, requireMarks = false } = options;
+  if (Array.isArray(payload?.clusters)) {
+    clusters = normaliseClusters(payload.clusters);
+  } else if (requireClusters) {
+    throw new Error('Server response omitted authoritative clusters');
+  }
+
+  const marked = markedIdsFromPayload(payload, requireMarks);
+  if (marked) markedResultIds = new Set(marked);
+  if (typeof payload?.can_undo === 'boolean') canUndo = payload.can_undo;
+  applyRecoveryState(payload);
+
+  const entries = filteredClusterEntries();
+  currentClusterIndex = entries.length ? Math.min(currentClusterIndex, entries.length - 1) : 0;
+  reconcileCompareState();
+  if (screens.results.classList.contains('screen--active')) renderCurrentCluster();
+}
+
+function clusteredResultIds() {
+  return new Set(clusters.flatMap(cluster => cluster.members.map(member => member.id)));
+}
+
+async function refreshAuthoritativeState(capturedSession) {
+  try {
+    const payload = await apiFetch(`/api/clusters/${encodeURIComponent(capturedSession)}`);
+    if (sessionId !== capturedSession) return { refreshed: false, stale: true, error: null };
+    setAuthoritativeState(payload, { requireClusters: true, requireMarks: true });
+    return { refreshed: true, stale: false, error: null };
+  } catch (error) {
+    return { refreshed: false, stale: false, error };
+  }
+}
+
+function hasAuthoritativeState(payload) {
+  if (!Array.isArray(payload?.clusters)) return false;
+  return Array.isArray(payload.marked_ids ?? payload.marked_result_ids ?? payload.marked);
+}
+
+async function reconcileAuthoritativeState(capturedSession, payload) {
+  if (sessionId === capturedSession && hasAuthoritativeState(payload)) {
+    try {
+      setAuthoritativeState(payload, { requireClusters: true, requireMarks: true });
+      return { refreshed: true, stale: false, error: null, source: 'error-response' };
+    } catch (directError) {
+      const fallback = await refreshAuthoritativeState(capturedSession);
+      return fallback.refreshed
+        ? { ...fallback, source: 'clusters-endpoint' }
+        : { ...fallback, error: fallback.error || directError, source: null };
+    }
+  }
+  const result = await refreshAuthoritativeState(capturedSession);
+  return { ...result, source: result.refreshed ? 'clusters-endpoint' : null };
+}
+
+function reconciliationOutcomes(payload) {
+  return Array.isArray(payload?.reconciliation)
+    ? payload.reconciliation.filter(item => item && typeof item === 'object' && item.result_id !== undefined)
+    : [];
+}
+
+function reconciliationFailureItems(payload) {
+  const items = reconciliationOutcomes(payload).map(item => ({
+    result_id: String(item.result_id),
+    relative_path: item.relative_path,
+    error: `Authoritative location: ${String(item.location || 'unresolved').replaceAll('_', ' ')}`
+  }));
+  if (payload?.manifest_path) {
+    items.push({ name: 'Recovery manifest', error: String(payload.manifest_path) });
+  }
+  return items;
+}
+
 function initTheme() {
   const savedTheme = localStorage.getItem('dupefinder-theme') || 'dark';
-  document.documentElement.className = savedTheme + '-theme';
+  document.documentElement.className = `${savedTheme}-theme`;
   updateThemeLabel(savedTheme);
 }
 
 function toggleTheme() {
   const current = document.documentElement.className.includes('light') ? 'light' : 'dark';
   const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.className = next + '-theme';
+  document.documentElement.className = `${next}-theme`;
   localStorage.setItem('dupefinder-theme', next);
   updateThemeLabel(next);
 }
 
 function updateThemeLabel(theme) {
-  if (elements.themeLabel) {
-    elements.themeLabel.textContent = theme === 'dark' ? 'Dark' : 'Light';
-  }
+  if (elements.themeLabel) elements.themeLabel.textContent = theme === 'dark' ? 'Dark' : 'Light';
 }
 
-
-/* -- FOLDER SELECTION ---------------------------------------------------- */
 function setupFolderInput() {
   elements.browseFolderBtn.addEventListener('click', async () => {
-    if (elements.browseFolderBtn.disabled) {
-      return; // Prevent double-clicks
-    }
-
+    if (elements.browseFolderBtn.disabled) return;
     elements.browseFolderBtn.disabled = true;
-    elements.browseFolderBtn.textContent = '⏳ Opening...';
-
+    elements.browseFolderBtn.textContent = 'Opening...';
     try {
-      const response = await fetch(`${API_BASE}/api/select-folder`, {
-        method: 'POST'
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        showToast(data.error, 'error');
-        return;
-      }
-
-      if (data.cancelled) {
-        return; // User cancelled, do nothing
-      }
-
-      if (data.success && data.path) {
-        selectFolder(data.path);
-      }
+      const data = await apiFetch('/api/select-folder', { method: 'POST' });
+      if (data.cancelled) return;
+      if (!data.folder_token || !data.display_path) throw new Error('Folder picker response was incomplete');
+      folderToken = String(data.folder_token);
+      selectedFolderDisplay = String(data.display_path);
+      setDisplayText(elements.pathText, selectedFolderDisplay);
+      elements.pathText.title = safeDisplayText(selectedFolderDisplay);
+      elements.pathPreview.classList.add('setup__path-preview--visible');
+      elements.startScanBtn.disabled = false;
     } catch (error) {
-      showToast('Failed to open folder picker: ' + error.message, 'error');
+      showToast(error.message, 'error');
     } finally {
-      elements.browseFolderBtn.disabled = false;
+      elements.browseFolderBtn.disabled = recoveryRequired || sessionRestoreBlocked;
       elements.browseFolderBtn.textContent = 'Choose Folder';
     }
   });
 }
 
-function selectFolder(path) {
-  selectedFolder = path;
-
-  // Extract just the folder name from the full path
-  const folderName = path.split(/[/\\]/).filter(Boolean).pop() || path;
-  elements.pathText.textContent = folderName;
-  elements.pathPreview.classList.add('setup__path-preview--visible');
-  elements.startScanBtn.disabled = false;
-}
-
-
-/* -- THRESHOLD SLIDER (Shared UI Component) ------------------------------ */
 function setupThresholdSlider() {
   const slider = elements.thresholdSlider;
   const input = elements.thresholdInput;
@@ -2683,845 +3173,1254 @@ function setupThresholdSlider() {
   const trackInactive = slider.querySelector('.ui-slider__track-inactive');
   const thumb = slider.querySelector('.ui-slider__thumb');
   const valueBubble = slider.querySelector('.ui-slider__value');
-  const gap = 4; // --ui-slider-gap-rest
 
-  function updateSlider(value) {
-    const min = parseInt(input.min);
-    const max = parseInt(input.max);
-    const percent = ((value - min) / (max - min)) * 100;
-
-    // Update tracks with gap
-    const thumbWidth = 6; // --ui-slider-thumb-width-rest in px
-    const halfThumb = thumbWidth / 2;
-
-    trackActive.style.width = `calc(${percent}% - ${halfThumb + gap}px)`;
+  const update = value => {
+    const numericValue = Number(value);
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const percent = ((numericValue - min) / (max - min)) * 100;
+    trackActive.style.width = `max(0px, calc(${percent}% - 7px))`;
+    trackInactive.style.width = `max(0px, calc(${100 - percent}% - 7px))`;
     trackActive.style.borderTopRightRadius = percent > 5 ? '0' : '';
     trackActive.style.borderBottomRightRadius = percent > 5 ? '0' : '';
-
-    trackInactive.style.width = `calc(${100 - percent}% - ${halfThumb + gap}px)`;
     trackInactive.style.borderTopLeftRadius = percent < 95 ? '0' : '';
     trackInactive.style.borderBottomLeftRadius = percent < 95 ? '0' : '';
-
-    // Update thumb position
     thumb.style.left = `${percent}%`;
+    valueBubble.textContent = String(numericValue);
+    elements.thresholdValue.textContent = `${numericValue}%`;
+  };
 
-    // Update value bubble
-    valueBubble.textContent = value;
-
-    // Update external display
-    elements.thresholdValue.textContent = value + '%';
-  }
-
-  // Initial update
-  updateSlider(input.value);
-
-  // Handle input events
-  input.addEventListener('input', (e) => {
-    updateSlider(e.target.value);
-  });
-
-  // Pressed state
-  input.addEventListener('mousedown', () => {
-    slider.classList.add('ui-slider--pressed');
-  });
-
-  input.addEventListener('touchstart', () => {
-    slider.classList.add('ui-slider--pressed');
-  });
-
-  document.addEventListener('mouseup', () => {
-    slider.classList.remove('ui-slider--pressed');
-  });
-
-  document.addEventListener('touchend', () => {
-    slider.classList.remove('ui-slider--pressed');
-  });
+  update(input.value);
+  input.addEventListener('input', event => update(event.target.value));
+  ['mousedown', 'touchstart'].forEach(type => input.addEventListener(type, () => slider.classList.add('ui-slider--pressed')));
+  ['mouseup', 'touchend'].forEach(type => document.addEventListener(type, () => slider.classList.remove('ui-slider--pressed')));
 }
 
+function resetTimeEstimation() {
+  lastProgressTime = null;
+  lastProgressCount = 0;
+  lastProgressTotal = 0;
+  smoothedRate = null;
+  progressSamples = [];
+}
 
-/* -- SCANNING ------------------------------------------------------------ */
+function formatTimeRemaining(seconds) {
+  if (scanState === 'paused') return 'Paused';
+  if (!Number.isFinite(seconds) || seconds < 1) return '';
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.floor(seconds % 60);
+  if (!minutes) return `${remainder} sec left`;
+  return `${minutes} min${minutes === 1 ? '' : 's'}${remainder ? ` ${remainder} sec` : ''} left`;
+}
+
+function updateTimeEstimate(current, total) {
+  const now = Date.now();
+  if (lastProgressTime === null || total !== lastProgressTotal || current < lastProgressCount) {
+    lastProgressTime = now;
+    lastProgressCount = current;
+    lastProgressTotal = total;
+    smoothedRate = null;
+    progressSamples = [];
+    return 'Calculating...';
+  }
+  const seconds = (now - lastProgressTime) / 1000;
+  const delta = current - lastProgressCount;
+  if (seconds < 0.1 || delta <= 0) return 'Calculating...';
+  progressSamples.push(delta / seconds);
+  if (progressSamples.length > MAX_SAMPLES) progressSamples.shift();
+  const average = progressSamples.reduce((sum, value) => sum + value, 0) / progressSamples.length;
+  smoothedRate = smoothedRate === null
+    ? average
+    : RATE_SMOOTHING_FACTOR * average + (1 - RATE_SMOOTHING_FACTOR) * smoothedRate;
+  lastProgressTime = now;
+  lastProgressCount = current;
+  lastProgressTotal = total;
+  if (progressSamples.length < MIN_SAMPLES_FOR_ESTIMATE) return 'Calculating...';
+  const remaining = (total - current) / smoothedRate;
+  return remaining > 7200 ? 'Calculating...' : formatTimeRemaining(remaining);
+}
+
 async function createSession() {
-  const response = await fetch(`${API_BASE}/api/session`, { method: 'POST' });
-  const data = await response.json();
-  return data.session_id;
+  const data = await apiFetch('/api/session', { method: 'POST' });
+  if (!data.session_id) throw new Error('Server did not create a session');
+  return String(data.session_id);
 }
 
-async function startScan() {
-  if (!selectedFolder) {
-    showToast('Please select a folder first', 'error');
-    return;
+function closeEventSource() {
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
   }
+}
 
-  showScreen('scanning');
-  isPaused = false;
-  startTime = Date.now();
+function isCurrentScan(capturedSession, capturedGeneration) {
+  return sessionId === capturedSession && scanGeneration === capturedGeneration;
+}
+
+function scanTerminalOrFinalizing() {
+  return ['finalizing', 'complete', 'error', 'cancelled', 'idle'].includes(scanState);
+}
+
+function resetScanDisplay() {
+  currentScanStage = 'Initializing...';
   totalFiles = 0;
   processedFiles = 0;
-  resetTimeEstimation(); // Reset smoothed time estimation
+  resetTimeEstimation();
   elements.progressFill.style.width = '0%';
-  elements.scanHeading.textContent = 'Initializing...';
+  setDisplayText(elements.scanHeading, currentScanStage);
   elements.timeEstimate.textContent = '';
   elements.scanLoader.classList.remove('scanning__loader--hidden');
   elements.pauseScanBtn.textContent = 'Pause';
+  elements.pauseScanBtn.disabled = false;
+  elements.cancelScanBtn.disabled = false;
+}
+
+async function startScan() {
+  if (recoveryRequired || sessionRestoreBlocked) {
+    showToast(
+      recoveryRequired
+        ? 'Manual recovery is required before a new scan can be started'
+        : 'The previous session must be restored before a new scan can be started',
+      'error'
+    );
+    return;
+  }
+  if (!folderToken) {
+    showToast('Choose a folder first', 'error');
+    return;
+  }
+  elements.startScanBtn.disabled = true;
+  closeEventSource();
+  scanGeneration += 1;
+  const generation = scanGeneration;
+  scanState = 'starting';
+  cancelRequestPending = false;
+  clusters = [];
+  markedResultIds.clear();
+  canUndo = false;
+  recoveryRequired = false;
+  recoveryManifestPath = '';
+  recoverySummary = '';
+  renderRecoveryNotice();
+  currentClusterIndex = 0;
+  hideCompare();
+  hideQuarantineModal();
+  clearOperationFailures();
+  resetScanDisplay();
+  showScreen('scanning');
 
   try {
-    sessionId = await createSession();
-
-    const response = await fetch(`${API_BASE}/api/scan`, {
+    const createdSession = await createSession();
+    if (generation !== scanGeneration) return;
+    rememberSession(createdSession);
+    await apiFetch('/api/scan', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        folder: selectedFolder,
+      body: {
+        session_id: createdSession,
+        folder_token: folderToken,
         quick_mode: elements.quickMode.checked,
-        threshold: parseInt(elements.thresholdInput.value) / 100
-      })
+        threshold: Number(elements.thresholdInput.value) / 100
+      }
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to start scan');
-    }
-
-    listenToEvents();
+    if (!isCurrentScan(createdSession, generation)) return;
+    scanState = 'scanning';
+    listenToEvents(createdSession, generation);
   } catch (error) {
+    if (generation !== scanGeneration) return;
+    closeEventSource();
+    scanState = 'idle';
+    rememberSession(null);
+    applyRecoveryState(error.payload);
     showToast(error.message, 'error');
     showScreen('setup');
+  } finally {
+    elements.startScanBtn.disabled = recoveryRequired || sessionRestoreBlocked || !folderToken;
   }
 }
 
-function listenToEvents() {
-  const eventSource = new EventSource(`${API_BASE}/api/events/${sessionId}`);
+function listenToEvents(capturedSession, capturedGeneration) {
+  closeEventSource();
+  const url = tokenizedUrl(`/api/events/${encodeURIComponent(capturedSession)}`, {});
+  const source = new EventSource(url);
+  activeEventSource = source;
 
-  eventSource.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    handleEvent(data);
+  const receive = (nativeEvent, explicitType = null) => {
+    if (!isCurrentScan(capturedSession, capturedGeneration)) return;
+    if (typeof nativeEvent.data !== 'string') return;
+    try {
+      const envelope = JSON.parse(nativeEvent.data);
+      if (envelope.session_id && String(envelope.session_id) !== capturedSession) return;
+      const eventType = explicitType || envelope.type || 'message';
+      const eventData = envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope;
+      void handleScanEvent(eventType, eventData, capturedSession, capturedGeneration);
+    } catch (error) {
+      showToast(`Invalid scan event: ${error.message}`, 'error');
+    }
   };
 
-  eventSource.onerror = () => {
-    eventSource.close();
+  source.onmessage = event => receive(event);
+  ['status', 'progress', 'complete', 'error', 'cancelled', 'canceled', 'paused', 'resumed', 'terminal'].forEach(type => {
+    source.addEventListener(type, event => receive(event, type));
+  });
+  source.onopen = () => {
+    if (isCurrentScan(capturedSession, capturedGeneration) && scanState === 'reconnecting') {
+      scanState = 'scanning';
+      setDisplayText(elements.scanHeading, currentScanStage);
+    }
+  };
+  source.onerror = () => {
+    if (!isCurrentScan(capturedSession, capturedGeneration) || scanTerminalOrFinalizing()) return;
+    scanState = cancelRequestPending ? 'cancelling' : 'reconnecting';
+    elements.scanHeading.textContent = cancelRequestPending ? 'Cancelling scan...' : 'Connection interrupted · Reconnecting...';
   };
 }
 
-// Store current scan stage for pause message
-let currentScanStage = 'Initializing...';
-
-function formatScanMessage(message) {
-  // Convert technical messages to user-friendly format
-  if (message.includes('Session created')) return 'Initializing...';
-  if (message.includes('Scan started') || message.includes('connecting to event stream')) return 'Starting scan...';
-  if (message.includes('Loading configuration')) return 'Preparing to scan...';
-  if (message.includes('Scanning for image files')) return 'Finding images...';
-  if (message.includes('Found') && message.includes('images')) {
-    const match = message.match(/Found (\d+) images/);
-    if (match) return `Found ${match[1]} images`;
-    return 'Counting images...';
-  }
-  if (message.includes('Analyzing images')) return 'Analyzing images...';
-  if (message.includes('Analyzing')) return message; // Keep "Analyzing 180/256..." format
-  if (message.includes('Finding duplicates')) return 'Comparing images...';
-  if (message.includes('Compared') && message.includes('pairs')) return 'Comparing images...';
-  if (message.includes('Grouping duplicates')) return 'Grouping duplicates...';
-  if (message.includes('Processed') && message.includes('images')) return 'Processing images...';
-
-  return message;
+function friendlyScanMessage(message) {
+  const text = String(message || 'Working...');
+  if (text.includes('Loading configuration')) return 'Preparing to scan...';
+  if (text.includes('Scanning for image files')) return 'Finding images...';
+  if (text.includes('Finding duplicates')) return 'Comparing images...';
+  if (text.includes('Grouping duplicates')) return 'Grouping results...';
+  return text;
 }
 
 function updateScanHeading(message) {
-  const formattedMessage = formatScanMessage(message);
-  currentScanStage = formattedMessage;
+  currentScanStage = friendlyScanMessage(message);
+  setDisplayText(elements.scanHeading, scanState === 'paused' ? `Paused · ${currentScanStage}` : currentScanStage);
+}
 
-  if (isPaused) {
-    elements.scanHeading.textContent = `Paused - ${formattedMessage}`;
+async function handleScanComplete(data, capturedSession, capturedGeneration) {
+  const scanErrors = Array.isArray(data.errors) ? data.errors : [];
+  let payload = data;
+  if (!Array.isArray(payload.clusters)) {
+    payload = await apiFetch(`/api/clusters/${encodeURIComponent(capturedSession)}`);
+  }
+  if (!isCurrentScan(capturedSession, capturedGeneration)) return;
+  clusters = normaliseClusters(payload.clusters || []);
+  const marked = markedIdsFromPayload(payload, false);
+  markedResultIds = new Set(marked || []);
+  canUndo = Boolean(payload.can_undo);
+  applyRecoveryState(payload);
+  scanState = 'complete';
+  closeEventSource();
+  elements.progressFill.style.width = '100%';
+  elements.timeEstimate.textContent = '';
+  const reportedErrors = Array.isArray(payload.errors) ? payload.errors : scanErrors;
+  if (reportedErrors.length) {
+    renderFailureRegion(elements.operationFailures, reportedErrors, 'Some files or comparisons were skipped safely:');
+    showToast('The scan completed with skipped items. Review the details.', 'warning');
   } else {
-    elements.scanHeading.textContent = formattedMessage;
+    clearOperationFailures();
   }
+  if (!clusters.length) {
+    showToast('No matching groups found', 'info');
+    showResults();
+    return;
+  }
+  currentClusterIndex = 0;
+  showToast(`Found ${clusters.length} review group${clusters.length === 1 ? '' : 's'}`, 'success');
+  showResults();
 }
 
-function handleEvent(event) {
-  if (isPaused) return;
-
-  switch (event.type) {
-    case 'status':
-      updateScanHeading(event.data.message);
-      if (event.data.total) {
-        totalFiles = event.data.total;
-      }
-      break;
-
-    case 'progress':
-      const percent = event.data.percent || 0;
-      elements.progressFill.style.width = percent + '%';
-
-      if (event.data.message) {
-        updateScanHeading(event.data.message);
-      }
-
-      if (event.data.current && event.data.total) {
-        processedFiles = event.data.current;
-        totalFiles = event.data.total;
-
-        // Calculate smoothed time remaining
-        elements.timeEstimate.textContent = updateTimeEstimate(processedFiles, totalFiles);
-      }
-      break;
-
-    case 'complete':
-      clusters = event.data.clusters || [];
-      markedFiles.clear();
-      currentClusterIndex = 0;
-
-      if (clusters.length === 0) {
-        showToast('No duplicates found!', 'success');
-        showScreen('setup');
-      } else {
-        showToast(`Found ${clusters.length} duplicate groups`, 'success');
-        showResults();
-      }
-      break;
-
-    case 'error':
-      showToast(event.data.message, 'error');
-      showScreen('setup');
-      break;
-
-    case 'keepalive':
-      break;
-  }
-}
-
-function togglePause() {
-  isPaused = !isPaused;
-
-  if (isPaused) {
-    elements.pauseScanBtn.textContent = 'Resume';
-    elements.scanLoader.classList.add('scanning__loader--hidden');
-    elements.timeEstimate.textContent = 'Paused';
-    elements.scanHeading.textContent = `Paused - ${currentScanStage}`;
-  } else {
-    elements.pauseScanBtn.textContent = 'Pause';
-    elements.scanLoader.classList.remove('scanning__loader--hidden');
-    elements.scanHeading.textContent = currentScanStage;
-    // Reset timing for resume (don't count paused time)
-    lastProgressTime = Date.now();
-    lastProgressCount = processedFiles;
-    // Show existing estimate if available
-    if (smoothedRate !== null && processedFiles > 0 && totalFiles > 0) {
-      const remaining = (totalFiles - processedFiles) / smoothedRate;
-      elements.timeEstimate.textContent = formatTimeRemaining(remaining);
-    }
-  }
-}
-
-function cancelScan() {
-  isPaused = false;
+function finishCancelled(capturedSession, capturedGeneration) {
+  if (!isCurrentScan(capturedSession, capturedGeneration)) return;
+  closeEventSource();
+  scanGeneration += 1;
+  scanState = 'idle';
+  cancelRequestPending = false;
+  rememberSession(null);
+  clusters = [];
+  markedResultIds.clear();
+  elements.cancelScanBtn.disabled = false;
+  elements.pauseScanBtn.disabled = false;
   showScreen('setup');
   showToast('Scan cancelled', 'warning');
 }
 
+async function handleScanEvent(type, data, capturedSession, capturedGeneration) {
+  if (!isCurrentScan(capturedSession, capturedGeneration)) return;
+  const status = String(data.status || '').toLowerCase();
+  if (type === 'complete' || (type === 'terminal' && status === 'complete')) {
+    scanState = 'finalizing';
+    try {
+      await handleScanComplete(data, capturedSession, capturedGeneration);
+    } catch (error) {
+      if (isCurrentScan(capturedSession, capturedGeneration)) {
+        scanState = 'error';
+        closeEventSource();
+        showToast(error.message, 'error');
+        showScreen('setup');
+      }
+    }
+    return;
+  }
+  if (type === 'error' || (type === 'terminal' && status === 'error')) {
+    scanState = 'error';
+    closeEventSource();
+    rememberSession(null);
+    showToast(data.message || data.error || 'Scan failed', 'error');
+    showScreen('setup');
+    return;
+  }
+  if (type === 'cancelled' || type === 'canceled' || status === 'cancelled' || status === 'canceled') {
+    finishCancelled(capturedSession, capturedGeneration);
+    return;
+  }
+  if (type === 'paused' || status === 'paused') {
+    scanState = 'paused';
+    elements.pauseScanBtn.textContent = 'Resume';
+    elements.scanLoader.classList.add('scanning__loader--hidden');
+    elements.timeEstimate.textContent = 'Paused';
+    updateScanHeading(data.message || currentScanStage);
+    return;
+  }
+  if (type === 'resumed' || status === 'resumed' || status === 'scanning') {
+    scanState = 'scanning';
+    elements.pauseScanBtn.textContent = 'Pause';
+    elements.scanLoader.classList.remove('scanning__loader--hidden');
+    updateScanHeading(data.message || currentScanStage);
+  }
+  if (type === 'status') {
+    if (data.message) updateScanHeading(data.message);
+    if (Number.isFinite(Number(data.total))) totalFiles = Number(data.total);
+    return;
+  }
+  if (type === 'progress') {
+    const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+    elements.progressFill.style.width = `${percent}%`;
+    if (data.message) updateScanHeading(data.message);
+    const current = Number(data.current);
+    const total = Number(data.total);
+    if (Number.isFinite(current) && Number.isFinite(total) && total > 0) {
+      processedFiles = current;
+      totalFiles = total;
+      elements.timeEstimate.textContent = updateTimeEstimate(current, total);
+    }
+  }
+}
 
-/* -- RESULTS ------------------------------------------------------------- */
+async function togglePause() {
+  if (!sessionId || !['scanning', 'paused', 'reconnecting'].includes(scanState) || elements.pauseScanBtn.disabled) return;
+  const capturedSession = sessionId;
+  const capturedGeneration = scanGeneration;
+  const action = scanState === 'paused' ? 'resume' : 'pause';
+  elements.pauseScanBtn.disabled = true;
+  try {
+    const data = await apiFetch('/api/scan-control', {
+      method: 'POST',
+      body: { session_id: capturedSession, action }
+    });
+    if (!isCurrentScan(capturedSession, capturedGeneration) || scanTerminalOrFinalizing()) return;
+    const returnedStatus = String(data.status || (action === 'pause' ? 'paused' : 'scanning')).toLowerCase();
+    if (action === 'pause' || returnedStatus === 'paused') {
+      scanState = 'paused';
+      elements.pauseScanBtn.textContent = 'Resume';
+      elements.scanLoader.classList.add('scanning__loader--hidden');
+      elements.timeEstimate.textContent = 'Paused';
+      updateScanHeading(data.message || currentScanStage);
+    } else {
+      scanState = 'scanning';
+      elements.pauseScanBtn.textContent = 'Pause';
+      elements.scanLoader.classList.remove('scanning__loader--hidden');
+      lastProgressTime = Date.now();
+      lastProgressCount = processedFiles;
+      updateScanHeading(data.message || currentScanStage);
+    }
+  } catch (error) {
+    if (isCurrentScan(capturedSession, capturedGeneration) && !scanTerminalOrFinalizing()) {
+      showToast(error.message, 'error');
+    }
+  } finally {
+    if (isCurrentScan(capturedSession, capturedGeneration) && !scanTerminalOrFinalizing()) {
+      elements.pauseScanBtn.disabled = false;
+    }
+  }
+}
+
+async function cancelScan() {
+  if (!sessionId || cancelRequestPending) return;
+  const capturedSession = sessionId;
+  const capturedGeneration = scanGeneration;
+  cancelRequestPending = true;
+  scanState = 'cancelling';
+  elements.cancelScanBtn.disabled = true;
+  elements.pauseScanBtn.disabled = true;
+  elements.scanHeading.textContent = 'Cancelling scan...';
+  try {
+    const data = await apiFetch('/api/scan-control', {
+      method: 'POST',
+      body: { session_id: capturedSession, action: 'cancel' }
+    });
+    if (!isCurrentScan(capturedSession, capturedGeneration) || scanTerminalOrFinalizing()) return;
+    const status = String(data.status || '').toLowerCase();
+    if (data.terminal || status === 'cancelled' || status === 'canceled') finishCancelled(capturedSession, capturedGeneration);
+  } catch (error) {
+    if (isCurrentScan(capturedSession, capturedGeneration) && !scanTerminalOrFinalizing()) {
+      cancelRequestPending = false;
+      scanState = 'scanning';
+      elements.cancelScanBtn.disabled = false;
+      elements.pauseScanBtn.disabled = false;
+      updateScanHeading(currentScanStage);
+      showToast(error.message, 'error');
+    }
+  }
+}
+
 function showResults() {
   showScreen('results');
-  updateStats();
   renderCurrentCluster();
 }
 
-function updateStats() {
-  elements.clusterNav.textContent = `${currentClusterIndex + 1} of ${clusters.length}`;
-  elements.prevClusterBtn.disabled = currentClusterIndex === 0;
-  elements.nextClusterBtn.disabled = currentClusterIndex >= clusters.length - 1;
-  elements.undoBtn.disabled = !canUndo;
+function appendMetaRow(container, label, value, valueTitle = '') {
+  container.appendChild(createElement('span', 'image-card__meta-label', `${label}:`));
+  const valueNode = createElement('span', 'image-card__meta-value', value);
+  if (valueTitle) valueNode.title = safeDisplayText(valueTitle);
+  container.appendChild(valueNode);
+}
+
+function createResultCard(member, cluster) {
+  const card = createElement('article', 'image-card');
+  card.dataset.resultId = member.id;
+  card.classList.toggle('image-card--reference', Boolean(member.is_representative || member.id === cluster.representative_id));
+  card.classList.toggle('image-card--marked', markedResultIds.has(member.id));
+  card.setAttribute('aria-label', safeDisplayText(`${member.name}, ${KIND_DETAILS[kindForMember(member)].label}`));
+  card.setAttribute('aria-busy', 'false');
+  card.title = safeDisplayText(member.full_path || member.relative_path || member.name);
+
+  const imageContainer = createElement('div', 'image-card__image-container');
+  const image = createElement('img', 'image-card__image');
+  image.src = thumbnailUrl(member.id, 300);
+  image.alt = safeDisplayText(`Preview of ${member.name}`);
+  image.loading = 'lazy';
+  imageContainer.appendChild(image);
+  if (member.is_representative || member.id === cluster.representative_id) {
+    imageContainer.appendChild(createElement('div', 'image-card__badge', 'COMPARISON REFERENCE'));
+  }
+  imageContainer.appendChild(createElement('div', 'image-card__check', '✓'));
+  card.appendChild(imageContainer);
+
+  const info = createElement('div', 'image-card__info');
+  const kindRow = createElement('div', 'image-card__kind-row');
+  kindRow.appendChild(makeKindBadge(member));
+  appendPeerBadges(kindRow, member);
+  if (Number(member.frame_count) > 1) kindRow.appendChild(createElement('span', 'match-badge', `${frameCountText(member)} frames/pages`));
+  if (member.has_alpha) kindRow.appendChild(createElement('span', 'match-badge', 'Alpha channel'));
+  info.appendChild(kindRow);
+
+  const keyStats = createElement('div', 'image-card__key-stats');
+  const resolution = createElement('div', 'image-card__stat');
+  resolution.appendChild(createElement('div', 'image-card__stat-label', 'Dimensions'));
+  resolution.appendChild(createElement('div', 'image-card__stat-value', dimensionText(member)));
+  const size = createElement('div', 'image-card__stat');
+  size.appendChild(createElement('div', 'image-card__stat-label', 'Bytes'));
+  size.appendChild(createElement('div', 'image-card__stat-value', formatBytes(member.size)));
+  keyStats.append(resolution, size);
+  info.appendChild(keyStats);
+
+  const metadata = createElement('div', 'image-card__meta-grid');
+  const exactDate = formatExactDate(member.modified);
+  appendMetaRow(metadata, 'Modified', exactDate, exactDate);
+  appendMetaRow(metadata, 'Format', member.format || 'Unknown');
+  appendMetaRow(metadata, 'Frames/pages', frameCountText(member));
+  appendMetaRow(metadata, 'Alpha', alphaText(member));
+  if (member.file_sha256) appendMetaRow(metadata, 'SHA-256', member.file_sha256, member.file_sha256);
+  info.appendChild(metadata);
+
+  const similarity = createElement('div', 'image-card__similarity', similarityText(member));
+  similarity.classList.add(member.match_kind === 'exact' ? 'image-card__similarity--perfect' : 'image-card__similarity--normal');
+  info.appendChild(similarity);
+  info.appendChild(createElement('div', 'verification-text', memberReviewText(member)));
+
+  const name = createElement('div', 'image-card__name', member.name);
+  name.title = safeDisplayText(member.name);
+  info.appendChild(name);
+  const relativePath = createElement('div', 'image-card__path', member.relative_path || member.name);
+  relativePath.title = safeDisplayText(member.relative_path || member.name);
+  info.appendChild(relativePath);
+  const fullPath = createElement('details', 'image-card__full-path');
+  fullPath.appendChild(createElement('summary', '', 'Full path'));
+  const fullPathValue = createElement('div', 'image-card__full-path-value', member.full_path || 'Not provided');
+  fullPathValue.title = safeDisplayText(member.full_path || '');
+  fullPath.appendChild(fullPathValue);
+  info.appendChild(fullPath);
+
+  const actions = createElement('div', 'image-card__actions');
+  const compareButton = createElement('button', 'btn btn--secondary btn--small', 'Compare');
+  compareButton.type = 'button';
+  compareButton.addEventListener('click', () => showCompare(member.id));
+  const markButton = createElement('button', 'btn btn--danger btn--small image-card__mark-button', markedResultIds.has(member.id) ? 'Unmark' : 'Mark for quarantine');
+  markButton.type = 'button';
+  markButton.disabled = recoveryRequired;
+  if (recoveryRequired) markButton.title = 'Manual recovery is required; marking is locked.';
+  markButton.addEventListener('click', () => void toggleMark(member.id));
+  actions.append(compareButton, markButton);
+  info.appendChild(actions);
+  card.appendChild(info);
+
+  card.addEventListener('contextmenu', event => showContextMenu(event, member.id));
+  return card;
+}
+
+function renderEmptyResults(message) {
+  clearNode(elements.imageGrid);
+  const empty = createElement('div', 'empty-state');
+  empty.appendChild(createElement('div', 'empty-state__icon', '⌕'));
+  empty.appendChild(createElement('div', 'empty-state__text', message));
+  elements.imageGrid.appendChild(empty);
+}
+
+function updateStats(entries) {
+  const totalMatches = entries.reduce((sum, entry) => sum + entry.matchingCount, 0);
+  elements.clusterNav.textContent = entries.length
+    ? `${currentClusterIndex + 1} of ${entries.length} · ${totalMatches} matching file${totalMatches === 1 ? '' : 's'}`
+    : `0 of 0 · 0 matching files`;
+  elements.firstClusterBtn.disabled = !entries.length || currentClusterIndex === 0;
+  elements.prevClusterBtn.disabled = !entries.length || currentClusterIndex === 0;
+  elements.nextClusterBtn.disabled = !entries.length || currentClusterIndex >= entries.length - 1;
+  elements.lastClusterBtn.disabled = !entries.length || currentClusterIndex >= entries.length - 1;
+  elements.undoBtn.disabled = recoveryRequired || !canUndo || operationRequestPending;
+  elements.reviewQuarantineBtn.disabled = recoveryRequired || markedResultIds.size === 0 || operationRequestPending;
+  elements.startOverBtn.disabled = recoveryRequired || canUndo || operationRequestPending || markingRequestPending;
+  elements.automarkMainBtn.disabled = recoveryRequired || operationRequestPending || markingRequestPending;
+  elements.automarkToggleBtn.disabled = recoveryRequired || operationRequestPending || markingRequestPending;
+  elements.automarkMenu.querySelectorAll('[data-action]').forEach(option => {
+    option.disabled = recoveryRequired || operationRequestPending || markingRequestPending;
+  });
+  elements.contextMarkLabel.disabled = recoveryRequired;
+  elements.imageGrid.querySelectorAll('.image-card__mark-button').forEach(button => {
+    button.disabled = recoveryRequired || markingRequestPending || operationRequestPending;
+    button.title = recoveryRequired ? 'Manual recovery is required; marking is locked.' : '';
+  });
+  elements.startOverBtn.title = recoveryRequired
+    ? 'Manual recovery is required. Review the recovery notice and close this app window intentionally when ready.'
+    : canUndo
+      ? 'Undo Last Quarantine before starting over. To leave without undoing, close this app window intentionally.'
+      : '';
+  elements.startOverSafetyHint.hidden = recoveryRequired || !canUndo;
 }
 
 function renderCurrentCluster() {
-  const cluster = clusters[currentClusterIndex];
-  if (!cluster) {
-    elements.imageGrid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">&#128269;</div><div class="empty-state__text">No duplicates to show</div></div>';
+  const entries = filteredClusterEntries();
+  currentClusterIndex = entries.length ? Math.min(currentClusterIndex, entries.length - 1) : 0;
+  updateStats(entries);
+  if (!entries.length) {
+    renderEmptyResults(`No ${FILTER_LABELS[currentFilter].toLowerCase()} results`);
     return;
   }
-
-  // Calculate largest values in this cluster
-  const largestDimension = Math.max(...cluster.members.map(m => m.width * m.height));
-  const largestSize = Math.max(...cluster.members.map(m => m.size));
-
-  elements.imageGrid.innerHTML = cluster.members.map(member => {
-    const isPerfect = member.is_representative || (member.similarity !== null && member.similarity >= 0.995);
-    const memberDimension = member.width * member.height;
-    const isDimensionLargest = memberDimension === largestDimension;
-    const isSizeLargest = member.size === largestSize;
-
-    const similarityClass = isPerfect ? 'image-card__similarity--perfect' : 'image-card__similarity--normal';
-
-    return `
-    <div class="image-card ${member.is_representative ? 'image-card--reference' : ''} ${markedFiles.has(member.path) ? 'image-card--marked' : ''}"
-         data-path="${member.path}"
-         tabindex="0"
-         role="button"
-         aria-pressed="${markedFiles.has(member.path)}">
-      <div class="image-card__image-container">
-        <img class="image-card__image"
-             src="${API_BASE}/api/thumbnail?path=${encodeURIComponent(member.path)}&size=300"
-             alt="${member.name}"
-             loading="lazy">
-        ${member.is_representative ? '<div class="image-card__badge">REFERENCE</div>' : ''}
-        <div class="image-card__check">&#10003;</div>
-      </div>
-      <div class="image-card__info">
-        <div class="image-card__key-stats">
-          <div class="image-card__stat">
-            <div class="image-card__stat-label">Resolution</div>
-            <div class="image-card__stat-value ${isDimensionLargest ? 'image-card__stat-value--largest' : ''}">${member.width} × ${member.height}</div>
-          </div>
-          <div class="image-card__stat">
-            <div class="image-card__stat-label">Size</div>
-            <div class="image-card__stat-value ${isSizeLargest ? 'image-card__stat-value--largest' : ''}">${formatBytes(member.size)}</div>
-          </div>
-        </div>
-        <div class="image-card__details">
-          <div class="image-card__meta-grid">
-            <span class="image-card__meta-label">Modified:</span>
-            <span class="image-card__meta-value">${formatDate(member.modified)}</span>
-          </div>
-        </div>
-        ${member.is_representative ? '' : `<div class="image-card__similarity ${similarityClass}">${Math.round(member.similarity * 100)}% match</div>`}
-        <div class="image-card__name" title="${member.name}">${member.name}</div>
-      </div>
-    </div>
-  `;
-  }).join('');
-
-  // Add click handlers
-  elements.imageGrid.querySelectorAll('.image-card').forEach((card, index) => {
-    card.addEventListener('click', () => toggleMark(card.dataset.path));
-    card.addEventListener('dblclick', () => showCompare(index));
-    card.addEventListener('contextmenu', (e) => showContextMenu(e, card.dataset.path, index));
-    card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleMark(card.dataset.path);
-      }
-    });
-  });
-
-  updateStats();
-}
-
-function toggleMark(path) {
-  if (markedFiles.has(path)) {
-    markedFiles.delete(path);
-  } else {
-    markedFiles.add(path);
-  }
-
-  // Update server
-  fetch(`${API_BASE}/api/mark`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, path })
-  });
-
-  // Update only the specific card's appearance without re-rendering entire grid
-  const card = elements.imageGrid.querySelector(`[data-path="${CSS.escape(path)}"]`);
-  if (card) {
-    const isMarked = markedFiles.has(path);
-    card.classList.toggle('image-card--marked', isMarked);
-    card.setAttribute('aria-pressed', isMarked);
-  }
-
-  updateStats();
+  clearNode(elements.imageGrid);
+  const entry = entries[currentClusterIndex];
+  entry.members.forEach(member => elements.imageGrid.appendChild(createResultCard(member, entry.cluster)));
 }
 
 function navigateCluster(delta) {
-  currentClusterIndex = Math.max(0, Math.min(clusters.length - 1, currentClusterIndex + delta));
+  if (quarantineModalOpen()) return;
+  const entries = filteredClusterEntries();
+  if (!entries.length) return;
+  currentClusterIndex = Math.max(0, Math.min(entries.length - 1, currentClusterIndex + delta));
+  hideCompare();
   renderCurrentCluster();
 }
 
 function goToCluster(index) {
-  currentClusterIndex = Math.max(0, Math.min(clusters.length - 1, index));
+  if (quarantineModalOpen()) return;
+  const entries = filteredClusterEntries();
+  if (!entries.length) return;
+  currentClusterIndex = Math.max(0, Math.min(entries.length - 1, index));
+  hideCompare();
   renderCurrentCluster();
 }
 
-/* -- SPLIT BUTTON LOGIC -------------------------------------------------- */
+async function toggleMark(resultId) {
+  if (recoveryRequired || !sessionId || quarantineModalOpen() || markingRequestPending || operationRequestPending) return;
+  const capturedSession = sessionId;
+  const shouldMark = !markedResultIds.has(resultId);
+  markingRequestPending = true;
+  const card = elements.imageGrid.querySelector(`[data-result-id="${CSS.escape(resultId)}"]`);
+  if (card) card.setAttribute('aria-busy', 'true');
+  try {
+    const data = await apiFetch('/api/mark', {
+      method: 'POST',
+      body: { session_id: capturedSession, result_id: resultId, marked: shouldMark }
+    });
+    if (sessionId !== capturedSession) return;
+    applyRecoveryState(data);
+    markedResultIds = new Set(markedIdsFromPayload(data, true));
+    if (Array.isArray(data.clusters)) clusters = normaliseClusters(data.clusters);
+    const failures = extractFailures(data);
+    if (failures.length) {
+      renderFailureRegion(elements.operationFailures, failures, 'Marking was rejected for:');
+      showToast('The server rejected one or more mark changes', 'error');
+    } else {
+      clearOperationFailures();
+    }
+    reconcileCompareState();
+    renderCurrentCluster();
+  } catch (error) {
+    applyRecoveryState(error.payload);
+    const failures = extractFailures(error.payload);
+    renderFailureRegion(
+      elements.operationFailures,
+      failures.length ? failures : [{ result_id: resultId, error: error.message }],
+      'Marking failed for:'
+    );
+    showToast(error.message, 'error');
+  } finally {
+    markingRequestPending = false;
+    if (card && card.isConnected) card.setAttribute('aria-busy', 'false');
+    if (elements.compareModal.classList.contains('compare-overlay--visible')) updateCompareView();
+    updateStats(filteredClusterEntries());
+  }
+}
+
+function setDropdownOpen(menu, container, controls, open) {
+  menu.classList.toggle('ui-menu--open', open);
+  menu.inert = !open;
+  menu.setAttribute('aria-hidden', String(!open));
+  container.classList.toggle('ui-split--open', open);
+  controls.forEach(control => control.setAttribute('aria-expanded', String(open)));
+}
+
 function setupSplitButtons() {
-  const filterBtn = document.getElementById('filterSplitBtn');
-  const automarkBtn = document.getElementById('automarkSplitBtn');
-
-  // Filter split button
-  elements.filterToggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = elements.filterMenu.classList.toggle('ui-menu--open');
-    filterBtn.classList.toggle('ui-split--open', isOpen);
-    elements.automarkMenu.classList.remove('ui-menu--open');
-    automarkBtn.classList.remove('ui-split--open');
+  const filterButton = document.getElementById('filterSplitBtn');
+  const automarkButton = document.getElementById('automarkSplitBtn');
+  const filterControls = [elements.filterMainBtn, elements.filterToggleBtn];
+  const automarkControls = [elements.automarkMainBtn, elements.automarkToggleBtn];
+  const toggleMenu = (menu, container, controls, otherMenu, otherContainer, otherControls) => {
+    const isOpen = !menu.classList.contains('ui-menu--open');
+    setDropdownOpen(menu, container, controls, isOpen);
+    setDropdownOpen(otherMenu, otherContainer, otherControls, false);
+  };
+  filterControls.forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleMenu(elements.filterMenu, filterButton, filterControls, elements.automarkMenu, automarkButton, automarkControls);
+    });
   });
-
-  elements.filterMainBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = elements.filterMenu.classList.toggle('ui-menu--open');
-    filterBtn.classList.toggle('ui-split--open', isOpen);
-    elements.automarkMenu.classList.remove('ui-menu--open');
-    automarkBtn.classList.remove('ui-split--open');
-  });
-
-  elements.filterMenu.querySelectorAll('.ui-menu__item').forEach(option => {
-    option.addEventListener('click', () => {
-      const filter = option.dataset.filter;
-      currentFilter = filter;
-      elements.filterMenu.classList.remove('ui-menu--open');
-      filterBtn.classList.remove('ui-split--open');
-
-      // Update active state
-      elements.filterMenu.querySelectorAll('.ui-menu__item').forEach(opt => {
-        opt.classList.toggle('ui-menu__item--selected', opt === option);
-      });
-
-      applyFilter();
+  automarkControls.forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleMenu(elements.automarkMenu, automarkButton, automarkControls, elements.filterMenu, filterButton, filterControls);
     });
   });
 
-  // Auto-mark split button
-  elements.automarkToggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = elements.automarkMenu.classList.toggle('ui-menu--open');
-    automarkBtn.classList.toggle('ui-split--open', isOpen);
-    elements.filterMenu.classList.remove('ui-menu--open');
-    filterBtn.classList.remove('ui-split--open');
+  elements.filterMenu.querySelectorAll('[data-filter]').forEach(option => {
+    option.addEventListener('click', () => applyFilter(option.dataset.filter));
   });
-
-  elements.automarkMainBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isOpen = elements.automarkMenu.classList.toggle('ui-menu--open');
-    automarkBtn.classList.toggle('ui-split--open', isOpen);
-    elements.filterMenu.classList.remove('ui-menu--open');
-    filterBtn.classList.remove('ui-split--open');
+  elements.automarkMenu.querySelectorAll('[data-action]').forEach(option => {
+    option.addEventListener('click', () => void executeAutomarkAction(option.dataset.action));
   });
-
-  elements.automarkMenu.querySelectorAll('.ui-menu__item').forEach(option => {
-    option.addEventListener('click', () => {
-      const action = option.dataset.action;
-      elements.automarkMenu.classList.remove('ui-menu--open');
-      automarkBtn.classList.remove('ui-split--open');
-
-      // Update active state
-      elements.automarkMenu.querySelectorAll('.ui-menu__item').forEach(opt => {
-        opt.classList.toggle('ui-menu__item--selected', opt === option);
-      });
-
-      executeAutomarkAction(action);
-    });
-  });
-
-  // Close menus when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!filterBtn.contains(e.target) && !elements.filterMenu.contains(e.target)) {
-      elements.filterMenu.classList.remove('ui-menu--open');
-      filterBtn.classList.remove('ui-split--open');
+  document.addEventListener('click', event => {
+    if (!filterButton.contains(event.target) && !elements.filterMenu.contains(event.target)) {
+      setDropdownOpen(elements.filterMenu, filterButton, filterControls, false);
     }
-    if (!automarkBtn.contains(e.target) && !elements.automarkMenu.contains(e.target)) {
-      elements.automarkMenu.classList.remove('ui-menu--open');
-      automarkBtn.classList.remove('ui-split--open');
+    if (!automarkButton.contains(event.target) && !elements.automarkMenu.contains(event.target)) {
+      setDropdownOpen(elements.automarkMenu, automarkButton, automarkControls, false);
     }
   });
 }
 
-function applyFilter() {
-  // Filter logic will skip clusters based on currentFilter
-  // For now, just show a toast - full implementation would filter navigation
-  let message = '';
-  switch (currentFilter) {
-    case 'perfect':
-      message = 'Viewing 100% match groups only';
-      break;
-    case 'non-perfect':
-      message = 'Viewing non-100% match groups only';
-      break;
-    default:
-      message = 'Viewing all groups';
-  }
-  showToast(message, 'info');
-  // TODO: Implement actual filtering logic in navigateCluster
+function applyFilter(filter) {
+  if (!Object.hasOwn(FILTER_LABELS, filter)) return;
+  currentFilter = filter;
+  currentClusterIndex = 0;
+  elements.filterMainBtn.textContent = `Filter: ${FILTER_LABELS[filter]}`;
+  elements.filterMenu.querySelectorAll('[data-filter]').forEach(option => {
+    const selected = option.dataset.filter === filter;
+    option.classList.toggle('ui-menu__item--selected', selected);
+    option.setAttribute('aria-checked', String(selected));
+  });
+  setDropdownOpen(
+    elements.filterMenu,
+    document.getElementById('filterSplitBtn'),
+    [elements.filterMainBtn, elements.filterToggleBtn],
+    false
+  );
+  hideCompare();
+  renderCurrentCluster();
 }
 
-function executeAutomarkAction(action) {
-  switch (action) {
-    case 'mark-all-perfect':
-      markAllPerfect();
-      break;
-    case 'mark-all-imperfect':
-      markAllImperfect();
-      break;
-    case 'reset':
-      resetMarks();
-      break;
-  }
-}
-
-function markAllPerfect() {
-  let markedCount = 0;
-
-  clusters.forEach(cluster => {
-    // Only process clusters with 100% matches (exclude reference from check)
-    const allPerfect = cluster.members.every(m => m.is_representative || (m.similarity !== null && m.similarity >= 0.995));
-    if (!allPerfect) return;
-
-    // Mark all images in this cluster except the largest
-    let largest = cluster.members[0];
-    cluster.members.forEach(m => {
-      if (m.size > largest.size) largest = m;
-    });
-
-    cluster.members.forEach(m => {
-      if (m.path !== largest.path && !markedFiles.has(m.path)) {
-        markedFiles.add(m.path);
-        markedCount++;
+async function executeAutomarkAction(action) {
+  setDropdownOpen(
+    elements.automarkMenu,
+    document.getElementById('automarkSplitBtn'),
+    [elements.automarkMainBtn, elements.automarkToggleBtn],
+    false
+  );
+  if (recoveryRequired || !sessionId || quarantineModalOpen() || operationRequestPending || markingRequestPending) return;
+  const capturedSession = sessionId;
+  const markedBeforeAction = new Set(markedResultIds);
+  operationRequestPending = true;
+  updateStats(filteredClusterEntries());
+  try {
+    const route = action === 'mark-exact' ? '/api/mark-exact' : action === 'reset' ? '/api/mark-reset' : null;
+    if (!route) return;
+    const data = await apiFetch(route, { method: 'POST', body: { session_id: capturedSession } });
+    if (sessionId !== capturedSession) return;
+    applyRecoveryState(data);
+    markedResultIds = new Set(markedIdsFromPayload(data, true));
+    if (Array.isArray(data.clusters)) clusters = normaliseClusters(data.clusters);
+    const failures = extractFailures(data);
+    renderCurrentCluster();
+    if (failures.length) {
+      renderFailureRegion(elements.operationFailures, failures, 'Marking completed with rejections:');
+      showToast('Marking completed with rejections. Review the details.', 'error');
+    } else {
+      clearOperationFailures();
+      if (action === 'mark-exact') {
+        const addedCount = [...markedResultIds].filter(resultId => !markedBeforeAction.has(resultId)).length;
+        const membersById = new Map(clusters.flatMap(cluster => cluster.members.map(member => [member.id, member])));
+        const markedMembers = [...markedResultIds].map(resultId => membersById.get(resultId)).filter(Boolean);
+        const provenanceCountKnown = markedMembers.length === markedResultIds.size;
+        const nonExactCount = markedMembers.filter(member => (
+          member.match_kind !== 'exact' && peerCount(member, 'exact_peer_count') === 0
+        )).length;
+        const provenanceText = provenanceCountKnown
+          ? nonExactCount === 1
+            ? ' 1 current mark lacks byte-exact provenance and still requires manual review.'
+            : ` ${nonExactCount} current marks lack byte-exact provenance and still require manual review.`
+          : ' Some current marks could not be classified by byte-exact provenance and require manual review.';
+        showToast(
+          `Added ${addedCount} byte-exact copy mark${addedCount === 1 ? '' : 's'}. Existing manual marks were preserved.${provenanceText}`,
+          'success'
+        );
+        if (data.policy) showToast(`Server policy: ${data.policy}`, 'info');
+      } else {
+        showToast('All quarantine marks cleared', 'success');
       }
-    });
-  });
-
-  // Batch update server
-  fetch(`${API_BASE}/api/mark-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, paths: Array.from(markedFiles), action: 'add' })
-  });
-
-  renderCurrentCluster();
-  showToast(`Marked ${markedCount} files in all 100% groups (kept largest)`, 'success');
-}
-
-function markAllImperfect() {
-  let markedCount = 0;
-
-  clusters.forEach(cluster => {
-    // Only process clusters with non-100% matches (exclude reference from check)
-    const hasImperfect = cluster.members.some(m => !m.is_representative && (m.similarity === null || m.similarity < 0.995));
-    if (!hasImperfect) return;
-
-    // Mark all images in this cluster except the largest
-    let largest = cluster.members[0];
-    cluster.members.forEach(m => {
-      if (m.size > largest.size) largest = m;
-    });
-
-    cluster.members.forEach(m => {
-      if (m.path !== largest.path && !markedFiles.has(m.path)) {
-        markedFiles.add(m.path);
-        markedCount++;
-      }
-    });
-  });
-
-  // Batch update server
-  fetch(`${API_BASE}/api/mark-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, paths: Array.from(markedFiles), action: 'add' })
-  });
-
-  renderCurrentCluster();
-  showToast(`Marked ${markedCount} files in all 99% or less groups (kept largest)`, 'success');
-}
-
-function resetMarks() {
-  markedFiles.clear();
-
-  fetch(`${API_BASE}/api/mark-batch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, action: 'clear' })
-  });
-
-  renderCurrentCluster();
-  showToast('All marks cleared', 'info');
-}
-
-function showDeleteModal() {
-  if (markedFiles.size === 0) {
-    showToast('No files marked for deletion', 'warning');
-    return;
+    }
+  } catch (error) {
+    applyRecoveryState(error.payload);
+    const failures = extractFailures(error.payload);
+    renderFailureRegion(
+      elements.operationFailures,
+      failures.length ? failures : [{ error: error.message }],
+      'Marking failed:'
+    );
+    showToast(error.message, 'error');
+  } finally {
+    operationRequestPending = false;
+    updateStats(filteredClusterEntries());
   }
-
-  elements.deleteFileCount.textContent = markedFiles.size;
-  elements.deleteModal.classList.add('modal-overlay--visible');
 }
 
-function hideDeleteModal() {
-  elements.deleteModal.classList.remove('modal-overlay--visible');
-}
-
-
-/* -- CONTEXT MENU -------------------------------------------------------- */
-function showContextMenu(e, path, index) {
-  e.preventDefault();
-  e.stopPropagation();
-
-  contextMenuTarget = { path, index };
-
-  // Update mark label based on current state
-  const isMarked = markedFiles.has(path);
-  elements.contextMarkLabel.textContent = isMarked ? 'Unmark' : 'Mark for Deletion';
-
-  // Position menu at cursor
+function showContextMenu(event, resultId) {
+  if (quarantineModalOpen()) return;
+  event.preventDefault();
+  event.stopPropagation();
+  contextMenuTargetId = resultId;
+  elements.contextMarkLabel.textContent = markedResultIds.has(resultId) ? 'Unmark Quarantine' : 'Mark for Quarantine';
+  elements.contextMarkLabel.disabled = recoveryRequired;
   const menu = elements.contextMenu;
-  menu.style.left = e.clientX + 'px';
-  menu.style.top = e.clientY + 'px';
-
-  // Adjust if menu would go off screen
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
   menu.classList.add('context-menu--visible');
-
+  menu.inert = false;
+  menu.setAttribute('aria-hidden', 'false');
   const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = (e.clientX - rect.width) + 'px';
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = (e.clientY - rect.height) + 'px';
-  }
+  if (rect.right > window.innerWidth) menu.style.left = `${event.clientX - rect.width}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${event.clientY - rect.height}px`;
 }
 
 function hideContextMenu() {
   elements.contextMenu.classList.remove('context-menu--visible');
-  contextMenuTarget = null;
+  elements.contextMenu.inert = true;
+  elements.contextMenu.setAttribute('aria-hidden', 'true');
+  contextMenuTargetId = null;
 }
 
 async function handleContextMenuAction(action) {
-  if (!contextMenuTarget) return;
-
-  const { path, index } = contextMenuTarget;
+  const resultId = contextMenuTargetId;
+  if (!resultId) return;
   hideContextMenu();
-
-  switch (action) {
-    case 'compare':
-      showCompare(index);
-      break;
-
-    case 'toggle-mark':
-      toggleMark(path);
-      break;
-
-    case 'open-folder':
-      try {
-        await fetch(`${API_BASE}/api/open-folder`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path })
-        });
-      } catch (error) {
-        showToast('Failed to open folder', 'error');
-      }
-      break;
-
-    case 'open-image':
-      try {
-        await fetch(`${API_BASE}/api/open-file`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path })
-        });
-      } catch (error) {
-        showToast('Failed to open image', 'error');
-      }
-      break;
+  if (action === 'compare') {
+    showCompare(resultId);
+    return;
+  }
+  if (action === 'toggle-mark') {
+    await toggleMark(resultId);
+    return;
+  }
+  const route = action === 'open-folder' ? '/api/open-folder' : action === 'open-image' ? '/api/open-file' : null;
+  if (!route) return;
+  try {
+    await apiFetch(route, { method: 'POST', body: { session_id: sessionId, result_id: resultId } });
+  } catch (error) {
+    showToast(error.message, 'error');
   }
 }
 
+function quarantineModalOpen() {
+  return elements.quarantineModal.classList.contains('modal-overlay--visible');
+}
 
-/* -- COMPARISON MODAL ---------------------------------------------------- */
-function showCompare(memberIndex) {
-  const cluster = clusters[currentClusterIndex];
-  if (!cluster || cluster.members.length < 2) return;
+function renderQuarantineItems(items) {
+  clearNode(elements.quarantineFileList);
+  items.forEach(item => {
+    const name = item.name || 'Unnamed file';
+    const relative = item.relative_path || 'Relative path not provided';
+    const listItem = createElement('li');
+    listItem.dir = 'auto';
+    listItem.appendChild(createElement('strong', '', name));
+    listItem.appendChild(document.createTextNode(safeDisplayText(` · ${relative}`)));
+    if (KIND_DETAILS[item.match_kind]) {
+      const badgeRow = createElement('div', 'image-card__kind-row');
+      badgeRow.appendChild(makeKindBadge(item));
+      appendPeerBadges(badgeRow, item);
+      listItem.appendChild(badgeRow);
+    }
+    if (item.match_kind === 'pixel_duplicate') {
+      listItem.appendChild(createElement('div', 'verification-text', KIND_DETAILS.pixel_duplicate.description));
+    }
+    elements.quarantineFileList.appendChild(listItem);
+  });
+  elements.quarantineFileCount.textContent = String(items.length);
+}
 
-  // Find reference member
-  const refMember = cluster.members.find(m => m.is_representative) || cluster.members[0];
+function showQuarantineFailures(failures, title = 'Quarantine could not be completed for:') {
+  renderFailureRegion(elements.quarantineFailures, failures, title);
+}
 
-  // Build list of non-reference members for navigation
-  compareNonRefMembers = cluster.members.filter(m => !m.is_representative);
-
-  // If clicked member is reference, compare with first non-ref
-  // Otherwise compare reference with clicked member
-  const clickedMember = cluster.members[memberIndex];
-
-  if (clickedMember.is_representative) {
-    if (compareNonRefMembers.length === 0) return;
-    compareLeftMember = refMember;
-    compareRightMember = compareNonRefMembers[0];
-    compareCurrentPairIndex = 0;
-  } else {
-    compareLeftMember = refMember;
-    compareRightMember = clickedMember;
-    compareCurrentPairIndex = compareNonRefMembers.findIndex(m => m.path === clickedMember.path);
+async function prepareQuarantineReview() {
+  if (recoveryRequired || !sessionId || !markedResultIds.size || operationRequestPending || markingRequestPending) return;
+  const capturedSession = sessionId;
+  operationRequestPending = true;
+  clearOperationFailures();
+  elements.reviewQuarantineBtn.disabled = true;
+  const requestedIds = Array.from(markedResultIds);
+  try {
+    const data = await apiFetch('/api/quarantine/prepare', {
+      method: 'POST',
+      body: { session_id: capturedSession, result_ids: requestedIds }
+    });
+    if (sessionId !== capturedSession) return;
+    applyRecoveryState(data);
+    const failures = extractFailures(data);
+    if (failures.length) {
+      renderFailureRegion(elements.operationFailures, failures, 'Quarantine preparation was rejected for:');
+      showToast('Quarantine preparation was rejected', 'error');
+      return;
+    }
+    const items = data.items ?? data.selection ?? data.files;
+    if (!data.selection_token || !Array.isArray(items)) throw new Error('Server did not return an immutable quarantine snapshot');
+    quarantineSelectionToken = String(data.selection_token);
+    renderQuarantineItems(items);
+    showQuarantineFailures([]);
+    quarantinePreviousFocus = document.activeElement;
+    elements.quarantineModal.classList.add('modal-overlay--visible');
+    elements.quarantineModal.inert = false;
+    elements.quarantineModal.setAttribute('aria-hidden', 'false');
+    elements.commitQuarantineBtn.disabled = false;
+    elements.commitQuarantineBtn.textContent = 'Move to Quarantine';
+    elements.cancelQuarantineBtn.textContent = 'Cancel';
+    window.requestAnimationFrame(() => elements.quarantineDialog.focus());
+  } catch (error) {
+    applyRecoveryState(error.payload);
+    const failures = extractFailures(error.payload);
+    renderFailureRegion(
+      elements.operationFailures,
+      failures.length ? failures : [{ error: error.message }],
+      'Quarantine preparation failed:'
+    );
+    showToast(error.message, 'error');
+  } finally {
+    operationRequestPending = false;
+    updateStats(filteredClusterEntries());
   }
+}
 
-  // Reset zoom/pan and swipe position
+function hideQuarantineModal() {
+  if (!elements.quarantineModal.classList.contains('modal-overlay--visible')) return;
+  elements.quarantineModal.classList.remove('modal-overlay--visible');
+  elements.quarantineModal.inert = true;
+  elements.quarantineModal.setAttribute('aria-hidden', 'true');
+  quarantineSelectionToken = null;
+  showQuarantineFailures([]);
+  if (quarantinePreviousFocus instanceof HTMLElement) quarantinePreviousFocus.focus();
+  quarantinePreviousFocus = null;
+}
+
+async function commitQuarantine() {
+  if (recoveryRequired || !sessionId || !quarantineSelectionToken || operationRequestPending) return;
+  const capturedSession = sessionId;
+  const selectionToken = quarantineSelectionToken;
+  const selectedResultIds = new Set(markedResultIds);
+  operationRequestPending = true;
+  elements.commitQuarantineBtn.disabled = true;
+  elements.cancelQuarantineBtn.disabled = true;
+  try {
+    const data = await apiFetch('/api/quarantine/commit', {
+      method: 'POST',
+      body: { session_id: capturedSession, selection_token: selectionToken }
+    });
+    if (sessionId !== capturedSession) return;
+    setAuthoritativeState(data, { requireClusters: true, requireMarks: true });
+    const failures = extractFailures(data);
+    if (failures.length) {
+      quarantineSelectionToken = data.selection_token ? String(data.selection_token) : null;
+      showQuarantineFailures(failures);
+      renderFailureRegion(elements.operationFailures, failures, 'Quarantine completed with failures:');
+      showToast('Quarantine completed with failures. Review the details.', 'error');
+      elements.commitQuarantineBtn.textContent = quarantineSelectionToken ? 'Retry Quarantine' : 'Snapshot Used';
+      elements.commitQuarantineBtn.disabled = !quarantineSelectionToken;
+      elements.cancelQuarantineBtn.textContent = 'Close';
+      return;
+    }
+    const moved = Number(data.quarantined ?? data.moved ?? data.count ?? 0);
+    hideQuarantineModal();
+    clearOperationFailures();
+    showToast(`Moved ${moved} file${moved === 1 ? '' : 's'} to quarantine`, 'success');
+    if (!clusters.length) {
+      showToast('No review groups remain', 'info');
+      showResults();
+    }
+  } catch (error) {
+    applyRecoveryState(error.payload);
+    const failures = extractFailures(error.payload);
+    const displayedFailures = [
+      ...(failures.length ? failures : [{ error: error.message }]),
+      ...reconciliationFailureItems(error.payload)
+    ];
+    if (typeof error.payload?.can_undo === 'boolean') canUndo = error.payload.can_undo;
+    showQuarantineFailures(displayedFailures);
+    renderFailureRegion(elements.operationFailures, displayedFailures, 'Quarantine failed:');
+    showToast(error.message, 'error');
+    const authoritative = await reconcileAuthoritativeState(capturedSession, error.payload);
+    if (authoritative.refreshed) {
+      const activeResultIds = clusteredResultIds();
+      const selectedIds = [...selectedResultIds];
+      const absentIds = selectedIds.filter(resultId => !activeResultIds.has(resultId));
+      const outcomes = reconciliationOutcomes(error.payload);
+      const outcomeById = new Map(outcomes.map(item => [String(item.result_id), item]));
+      const selectedOutcomes = selectedIds.map(resultId => outcomeById.get(resultId)).filter(Boolean);
+      const outcomesCoverSelection = selectedOutcomes.length === selectedIds.length && selectedIds.length > 0;
+      const originalCount = selectedOutcomes.filter(item => item.location === 'original').length;
+      const quarantineCount = selectedOutcomes.filter(item => item.location === 'quarantine').length;
+      const unresolvedCount = selectedOutcomes.length - originalCount - quarantineCount;
+      const responseHasToken = error.payload && Object.hasOwn(error.payload, 'selection_token');
+      const replacementToken = responseHasToken && error.payload.selection_token
+        ? String(error.payload.selection_token)
+        : null;
+      const authoritativeMarksMatchSelection = markedResultIds.size === selectedResultIds.size
+        && [...selectedResultIds].every(resultId => markedResultIds.has(resultId));
+      const tokenWasRejected = error instanceof ApiError && error.status === 404;
+      const responseConsumedSnapshot = outcomes.length > 0
+        || error.payload?.selection_consumed === true
+        || error.payload?.selection_token_valid === false
+        || tokenWasRejected
+        || !authoritativeMarksMatchSelection
+        || (responseHasToken && !replacementToken);
+      if (replacementToken) quarantineSelectionToken = replacementToken;
+
+      if (outcomesCoverSelection && originalCount === selectedIds.length) {
+        if (responseConsumedSnapshot) hideQuarantineModal();
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'Rollback confirmed; no quarantine commit was confirmed:'
+        );
+        showToast('Authoritative reconciliation reports every selected file at its original location. No quarantine commit was confirmed.', 'warning');
+      } else if (outcomesCoverSelection && (quarantineCount > 0 || unresolvedCount > 0)) {
+        hideQuarantineModal();
+        const mixed = originalCount > 0 || unresolvedCount > 0;
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          mixed
+            ? 'Partial quarantine failure; this is not a committed operation:'
+            : 'Failed quarantine left selected files quarantined; this is not a confirmed normal commit:'
+        );
+        showToast(
+          mixed
+            ? 'Partial quarantine was reconciled. Some locations differ; review the failure details and recovery manifest.'
+            : 'The failed operation left selected files in quarantine. Review the failure details and recovery manifest.',
+          'error'
+        );
+      } else if (selectedIds.length > 0 && absentIds.length === selectedIds.length) {
+        hideQuarantineModal();
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'Quarantine acknowledgement was lost; all selected IDs are absent from authoritative active clusters:'
+        );
+        showToast('All selected IDs are absent from authoritative active clusters. The quarantine likely committed; the used snapshot was closed.', 'warning');
+        if (!clusters.length) showResults();
+      } else if (absentIds.length === 0) {
+        if (responseConsumedSnapshot) hideQuarantineModal();
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'No quarantine commit confirmed; authoritative state was refreshed:'
+        );
+        showToast(
+          responseConsumedSnapshot
+            ? 'No selected ID is absent from active clusters. No commit was confirmed, but the authoritative marks no longer prove this snapshot reusable, so it was closed.'
+            : 'No selected ID is absent from active clusters. No commit was confirmed; the prepared snapshot remains available.',
+          'warning'
+        );
+      } else {
+        hideQuarantineModal();
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'Partial quarantine detected; this is not a committed operation:'
+        );
+        showToast('Only some selected IDs are absent from active clusters. Treat this as a partial quarantine and review recovery details.', 'error');
+      }
+    } else if (authoritative.error) {
+      if (error instanceof ApiError && error.status === 404) hideQuarantineModal();
+      showToast(`Could not refresh authoritative state: ${authoritative.error.message}`, 'error');
+    }
+  } finally {
+    operationRequestPending = false;
+    elements.cancelQuarantineBtn.disabled = false;
+    if (!recoveryRequired && quarantineModalOpen() && quarantineSelectionToken) elements.commitQuarantineBtn.disabled = false;
+    updateStats(filteredClusterEntries());
+  }
+}
+
+async function undoQuarantine() {
+  if (recoveryRequired || !sessionId || operationRequestPending || quarantineModalOpen()) return;
+  const capturedSession = sessionId;
+  operationRequestPending = true;
+  elements.undoBtn.disabled = true;
+  clearOperationFailures();
+  try {
+    const data = await apiFetch('/api/undo', { method: 'POST', body: { session_id: capturedSession } });
+    if (sessionId !== capturedSession) return;
+    setAuthoritativeState(data, { requireClusters: true, requireMarks: true });
+    const failures = extractFailures(data);
+    if (failures.length) {
+      renderFailureRegion(elements.operationFailures, failures, 'Undo returned failures; authoritative state was applied:');
+      showToast('Undo returned failures. Review the authoritative state and details.', 'error');
+      return;
+    }
+    const restored = Number(data.restored ?? 0);
+    if (restored > 0) showToast(`Restored ${restored} file${restored === 1 ? '' : 's'}`, 'success');
+    else showToast('Nothing was restored', 'warning');
+  } catch (error) {
+    applyRecoveryState(error.payload);
+    const failures = extractFailures(error.payload);
+    const displayedFailures = [
+      ...(failures.length ? failures : [{ error: error.message }]),
+      ...reconciliationFailureItems(error.payload)
+    ];
+    if (typeof error.payload?.can_undo === 'boolean') canUndo = error.payload.can_undo;
+    renderFailureRegion(
+      elements.operationFailures,
+      displayedFailures,
+      'Undo failed:'
+    );
+    showToast(error.message, 'error');
+    const authoritative = await reconcileAuthoritativeState(capturedSession, error.payload);
+    if (authoritative.refreshed) {
+      const outcomes = reconciliationOutcomes(error.payload);
+      const originalCount = outcomes.filter(item => item.location === 'original').length;
+      const quarantineCount = outcomes.filter(item => item.location === 'quarantine').length;
+      const unresolvedCount = outcomes.length - originalCount - quarantineCount;
+      if (outcomes.length > 0 && originalCount === outcomes.length) {
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'Undo returned an error, but reconciliation reports all affected files at original locations:'
+        );
+        showToast('All affected files are reported at their original locations. Review the Undo warning and recovery manifest.', 'warning');
+      } else if (outcomes.length > 0 && originalCount > 0) {
+        renderFailureRegion(
+          elements.operationFailures,
+          displayedFailures,
+          'Undo partially reconciled; complete restoration is not confirmed:'
+        );
+        showToast('State was refreshed; some files may have been restored. Review the failure details and recovery manifest.', 'error');
+      } else if (outcomes.length > 0 && quarantineCount === outcomes.length) {
+        showToast('State was refreshed; reconciliation confirms no affected file at its original location. Review the recovery manifest.', 'error');
+      } else if (outcomes.length > 0 && unresolvedCount > 0) {
+        showToast('State was refreshed, but one or more file locations remain unresolved. Review the failure details and recovery manifest.', 'error');
+      } else {
+        showToast('Authoritative state was refreshed after the Undo error. Complete restoration cannot be inferred; review the failure details.', 'warning');
+      }
+    } else if (authoritative.error) {
+      showToast(`Could not refresh authoritative state: ${authoritative.error.message}`, 'error');
+    }
+  } finally {
+    operationRequestPending = false;
+    updateStats(filteredClusterEntries());
+  }
+}
+
+function clusterById(clusterId) {
+  return clusters.find(cluster => cluster.id === clusterId) || null;
+}
+
+function findMember(cluster, resultId) {
+  return cluster?.members.find(member => member.id === resultId) || null;
+}
+
+function currentComparePair() {
+  const cluster = clusterById(compareClusterId);
+  const reference = findMember(cluster, compareReferenceId);
+  const selectedId = compareMemberIds[compareCurrentPairIndex];
+  const member = findMember(cluster, selectedId);
+  return cluster && reference && member ? { cluster, reference, member } : null;
+}
+
+function showCompare(resultId) {
+  if (quarantineModalOpen()) return;
+  const entry = filteredClusterEntries()[currentClusterIndex];
+  if (!entry || !entry.reference) {
+    showToast('This group has no comparison reference', 'error');
+    return;
+  }
+  const memberIds = entry.members.filter(member => member.id !== entry.reference.id).map(member => member.id);
+  if (!memberIds.length) {
+    showToast('No comparison pair is available in this filter', 'warning');
+    return;
+  }
+  compareClusterId = entry.cluster.id;
+  compareReferenceId = entry.reference.id;
+  compareMemberIds = memberIds;
+  compareCurrentPairIndex = Math.max(0, memberIds.indexOf(resultId));
+  compareSwapped = false;
   compareZoom = 1;
   comparePan = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
   compareSwipePosition = 50;
-
-  // Reset to side-by-side mode
   setCompareMode('side-by-side');
-
-  updateCompareImages();
-  updateCompareNav();
+  updateCompareView();
   elements.compareModal.classList.add('compare-overlay--visible');
+  elements.compareModal.inert = false;
+  elements.compareModal.setAttribute('aria-hidden', 'false');
+  elements.compareCloseBtn.focus();
 }
 
 function hideCompare() {
   elements.compareModal.classList.remove('compare-overlay--visible');
+  elements.compareModal.inert = true;
+  elements.compareModal.setAttribute('aria-hidden', 'true');
+  compareClusterId = null;
+  compareReferenceId = null;
+  compareMemberIds = [];
+  compareCurrentPairIndex = 0;
+  compareSwapped = false;
 }
 
-function updateCompareImages() {
-  if (!compareLeftMember || !compareRightMember) return;
+function reconcileCompareState() {
+  if (!elements.compareModal.classList.contains('compare-overlay--visible')) return;
+  const pair = currentComparePair();
+  if (!pair || pair.cluster.representative_id !== compareReferenceId) {
+    hideCompare();
+    return;
+  }
+  compareMemberIds = compareMemberIds.filter(id => Boolean(findMember(pair.cluster, id)));
+  if (!compareMemberIds.length) {
+    hideCompare();
+    return;
+  }
+  compareCurrentPairIndex = Math.min(compareCurrentPairIndex, compareMemberIds.length - 1);
+  updateCompareView();
+}
 
-  // Load images (use larger size for comparison)
-  elements.compareImageLeft.src = `${API_BASE}/api/thumbnail?path=${encodeURIComponent(compareLeftMember.path)}&size=1200`;
-  elements.compareImageRight.src = `${API_BASE}/api/thumbnail?path=${encodeURIComponent(compareRightMember.path)}&size=1200`;
+function renderCompareKind(container, member) {
+  clearNode(container);
+  container.appendChild(makeKindBadge(member));
+  appendPeerBadges(container, member);
+  if (Number(member.frame_count) > 1) container.appendChild(createElement('span', 'match-badge', `${frameCountText(member)} frames/pages`));
+  if (member.has_alpha) container.appendChild(createElement('span', 'match-badge', 'Alpha channel'));
+}
 
-  // Calculate which stats are better
-  const leftPixels = compareLeftMember.width * compareLeftMember.height;
-  const rightPixels = compareRightMember.width * compareRightMember.height;
-  const leftSize = compareLeftMember.size;
-  const rightSize = compareRightMember.size;
+function setCompareMember(side, member, otherMember) {
+  const suffix = side === 'left' ? 'Left' : 'Right';
+  elements[`compareImage${suffix}`].src = thumbnailUrl(member.id, 1200);
+  elements[`compareImage${suffix}`].alt = safeDisplayText(`Preview of ${member.name}`);
+  setDisplayText(elements[`compareName${suffix}`], member.name);
+  setDisplayText(elements[`compareRelative${suffix}`], member.relative_path || member.name);
+  elements[`compareRelative${suffix}`].title = safeDisplayText(member.relative_path || member.name);
+  setDisplayText(elements[`comparePath${suffix}`], member.full_path || 'Full path not provided');
+  elements[`comparePath${suffix}`].title = safeDisplayText(member.full_path || '');
+  renderCompareKind(elements[`compareKind${suffix}`], member);
+  setDisplayText(elements[`compareVerification${suffix}`], memberReviewText(member));
+  elements[`compareDims${suffix}`].textContent = dimensionText(member);
+  elements[`compareSize${suffix}`].textContent = formatBytes(member.size);
+  elements[`compareDate${suffix}`].textContent = formatExactDate(member.modified);
+  elements[`compareDate${suffix}`].title = formatExactDate(member.modified);
+  setDisplayText(elements[`compareType${suffix}`], member.format || 'Unknown');
+  elements[`compareFrames${suffix}`].textContent = frameCountText(member);
+  elements[`compareAlpha${suffix}`].textContent = alphaText(member);
 
-  // Update left panel info
-  elements.compareNameLeft.textContent = compareLeftMember.name;
-  elements.compareDimsLeft.textContent = `${compareLeftMember.width} x ${compareLeftMember.height}`;
-  elements.compareDimsLeft.className = 'compare__stat-value' +
-    (leftPixels > rightPixels ? ' compare__stat-value--better' :
-     leftPixels < rightPixels ? ' compare__stat-value--worse' : '');
+  const pixels = Number(member.width) * Number(member.height);
+  const otherPixels = Number(otherMember.width) * Number(otherMember.height);
+  elements[`compareDims${suffix}`].className = 'compare__stat-value' + (pixels > otherPixels ? ' compare__stat-value--better' : pixels < otherPixels ? ' compare__stat-value--worse' : '');
+  elements[`compareSize${suffix}`].className = 'compare__stat-value';
+}
 
-  elements.compareSizeLeft.textContent = formatBytes(leftSize);
-  elements.compareSizeLeft.className = 'compare__stat-value' +
-    (leftSize > rightSize ? ' compare__stat-value--better' :
-     leftSize < rightSize ? ' compare__stat-value--worse' : '');
+function updateCompareActionButton(button, member, sideLabel) {
+  const marked = markedResultIds.has(member.id);
+  button.textContent = marked ? `Unmark ${sideLabel}` : `Mark ${sideLabel} for Quarantine`;
+  button.className = `btn ${marked ? 'btn--secondary' : 'btn--danger'} compare__action-btn`;
+  button.disabled = recoveryRequired || markingRequestPending || operationRequestPending;
+  button.title = recoveryRequired ? 'Manual recovery is required; marking is locked.' : '';
+}
 
-  elements.compareDateLeft.textContent = formatDate(compareLeftMember.modified);
-  elements.compareTypeLeft.textContent = getFileExtension(compareLeftMember.name);
-
-  // Update right panel info
-  elements.compareNameRight.textContent = compareRightMember.name;
-  elements.compareDimsRight.textContent = `${compareRightMember.width} x ${compareRightMember.height}`;
-  elements.compareDimsRight.className = 'compare__stat-value' +
-    (rightPixels > leftPixels ? ' compare__stat-value--better' :
-     rightPixels < leftPixels ? ' compare__stat-value--worse' : '');
-
-  elements.compareSizeRight.textContent = formatBytes(rightSize);
-  elements.compareSizeRight.className = 'compare__stat-value' +
-    (rightSize > leftSize ? ' compare__stat-value--better' :
-     rightSize < leftSize ? ' compare__stat-value--worse' : '');
-
-  elements.compareDateRight.textContent = formatDate(compareRightMember.modified);
-  elements.compareTypeRight.textContent = getFileExtension(compareRightMember.name);
-
-  // Update similarity
-  const similarity = Math.round(compareRightMember.similarity * 100);
-  elements.compareSimilarity.textContent = `Similarity: ${similarity}%`;
-
-  // Update action buttons based on current mark state
-  updateCompareActionButtons();
-
-  // Apply zoom/pan
+function updateCompareView() {
+  const pair = currentComparePair();
+  if (!pair) {
+    hideCompare();
+    return;
+  }
+  const left = compareSwapped ? pair.member : pair.reference;
+  const right = compareSwapped ? pair.reference : pair.member;
+  setCompareMember('left', left, right);
+  setCompareMember('right', right, left);
+  updateCompareActionButton(elements.compareMarkLeft, left, 'Left');
+  updateCompareActionButton(elements.compareMarkRight, right, 'Right');
+  setDisplayText(elements.compareSimilarity, similarityText(pair.member));
+  elements.compareSimilarity.title = safeDisplayText(memberReviewText(pair.member));
+  elements.comparePrevBtn.disabled = compareCurrentPairIndex <= 0;
+  elements.compareNextBtn.disabled = compareCurrentPairIndex >= compareMemberIds.length - 1;
   applyCompareTransform();
 }
 
-function getFileExtension(filename) {
-  const ext = filename.split('.').pop();
-  return ext ? ext.toUpperCase() : 'Unknown';
-}
-
-function updateCompareActionButtons() {
-  const leftMarked = markedFiles.has(compareLeftMember.path);
-  const rightMarked = markedFiles.has(compareRightMember.path);
-
-  elements.compareKeepLeft.textContent = leftMarked ? 'Unmark Left' : 'Keep This';
-  elements.compareKeepRight.textContent = rightMarked ? 'Unmark Right' : 'Mark for Deletion';
-}
-
-function updateCompareNav() {
-  elements.comparePrevBtn.disabled = compareCurrentPairIndex <= 0;
-  elements.compareNextBtn.disabled = compareCurrentPairIndex >= compareNonRefMembers.length - 1;
-}
-
 function navigateComparePair(delta) {
-  const newIndex = compareCurrentPairIndex + delta;
-  if (newIndex >= 0 && newIndex < compareNonRefMembers.length) {
-    compareCurrentPairIndex = newIndex;
-    compareRightMember = compareNonRefMembers[compareCurrentPairIndex];
-
-    // Reset zoom/pan when switching pairs
-    compareZoom = 1;
-    comparePan = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
-
-    updateCompareImages();
-    updateCompareNav();
-  }
+  const nextIndex = compareCurrentPairIndex + delta;
+  if (nextIndex < 0 || nextIndex >= compareMemberIds.length) return;
+  compareCurrentPairIndex = nextIndex;
+  compareZoom = 1;
+  comparePan = { left: { x: 0, y: 0 }, right: { x: 0, y: 0 } };
+  updateCompareView();
 }
 
 function swapCompareImages() {
-  const temp = compareLeftMember;
-  compareLeftMember = compareRightMember;
-  compareRightMember = temp;
-  updateCompareImages();
+  compareSwapped = !compareSwapped;
+  updateCompareView();
 }
 
-function keepCompareLeft() {
-  // "Keep This" means mark the right image for deletion (or unmark left if it was marked)
-  const leftMarked = markedFiles.has(compareLeftMember.path);
-
-  if (leftMarked) {
-    toggleMark(compareLeftMember.path);
-  } else {
-    // Mark right for deletion if not already marked
-    if (!markedFiles.has(compareRightMember.path)) {
-      toggleMark(compareRightMember.path);
-    }
-  }
-
-  updateCompareActionButtons();
-
-  // Auto-advance to next pair if available
-  if (compareCurrentPairIndex < compareNonRefMembers.length - 1) {
-    navigateComparePair(1);
-  }
-}
-
-function keepCompareRight() {
-  // Toggle mark state of right image
-  toggleMark(compareRightMember.path);
-  updateCompareActionButtons();
+async function toggleCompareSide(side) {
+  const pair = currentComparePair();
+  if (!pair) return;
+  const left = compareSwapped ? pair.member : pair.reference;
+  const right = compareSwapped ? pair.reference : pair.member;
+  await toggleMark(side === 'left' ? left.id : right.id);
+  if (elements.compareModal.classList.contains('compare-overlay--visible')) updateCompareView();
 }
 
 function setCompareMode(mode) {
   compareMode = mode;
-  const compareContainer = elements.compareModal.querySelector('.compare');
-
-  // Update button states
-  elements.compareModal.querySelectorAll('.compare__mode-btn').forEach(btn => {
-    btn.classList.toggle('compare__mode-btn--active', btn.dataset.mode === mode);
+  const container = elements.compareModal.querySelector('.compare');
+  elements.compareModal.querySelectorAll('.compare__mode-btn').forEach(button => {
+    button.classList.toggle('compare__mode-btn--active', button.dataset.mode === mode);
   });
-
-  // Remove all mode classes and reset panel styles
-  compareContainer.classList.remove('compare--overlay', 'compare--swipe');
-
+  container.classList.remove('compare--overlay', 'compare--swipe');
   const leftPanel = elements.compareModal.querySelector('.compare__image-panel--left');
   const rightPanel = elements.compareModal.querySelector('.compare__image-panel--right');
-
-  // Reset panel positions (for when leaving swipe mode)
-  if (leftPanel) leftPanel.style.right = '';
-  if (rightPanel) rightPanel.style.left = '';
+  leftPanel.style.right = '';
+  rightPanel.style.left = '';
   elements.compareDivider.style.left = '';
-
-  // Reset right wrapper opacity (for when leaving overlay mode)
   elements.compareWrapperRight.style.opacity = '';
-
-  // Apply mode-specific classes and show/hide controls
   if (mode === 'overlay') {
-    compareContainer.classList.add('compare--overlay');
+    container.classList.add('compare--overlay');
     elements.compareOverlaySlider.style.display = 'flex';
     updateOverlayOpacity(elements.compareOverlayRange.value);
   } else if (mode === 'swipe') {
-    compareContainer.classList.add('compare--swipe');
+    container.classList.add('compare--swipe');
     elements.compareOverlaySlider.style.display = 'none';
-    // Reset swipe position to center and apply it
     compareSwipePosition = 50;
     applySwipePosition();
   } else {
@@ -3530,75 +4429,46 @@ function setCompareMode(mode) {
 }
 
 function updateOverlayOpacity(value) {
-  elements.compareOverlayValue.textContent = value;
-  const rightWrapper = elements.compareWrapperRight;
-  rightWrapper.style.opacity = value / 100;
+  elements.compareOverlayValue.textContent = String(value);
+  elements.compareWrapperRight.style.opacity = Number(value) / 100;
 }
 
 function applyCompareTransform() {
-  const transformLeft = `scale(${compareZoom}) translate(${comparePan.left.x}px, ${comparePan.left.y}px)`;
-  const transformRight = `scale(${compareZoom}) translate(${comparePan.right.x}px, ${comparePan.right.y}px)`;
-  elements.compareImageLeft.style.transform = transformLeft;
-  elements.compareImageRight.style.transform = transformRight;
+  elements.compareImageLeft.style.transform = `scale(${compareZoom}) translate(${comparePan.left.x}px, ${comparePan.left.y}px)`;
+  elements.compareImageRight.style.transform = `scale(${compareZoom}) translate(${comparePan.right.x}px, ${comparePan.right.y}px)`;
 }
 
-function handleCompareWheel(e) {
-  e.preventDefault();
-
-  // Zoom with mouse wheel - affects both images equally
-  const delta = e.deltaY > 0 ? 0.9 : 1.1;
-  const newZoom = Math.min(Math.max(compareZoom * delta, 0.5), 5);
-
-  compareZoom = newZoom;
+function handleCompareWheel(event) {
+  event.preventDefault();
+  compareZoom = Math.min(Math.max(compareZoom * (event.deltaY > 0 ? 0.9 : 1.1), 0.5), 5);
   applyCompareTransform();
 }
 
-function handleCompareDragStart(e) {
-  if (e.button !== 0) return; // Only left click
-
-  // Don't start image drag if we're dragging the swipe divider
-  if (compareSwipeDragging) return;
-
-  // In swipe mode, check if click is on/near the divider - if so, don't start image drag
+function handleCompareDragStart(event) {
+  if (event.button !== 0 || compareSwipeDragging) return;
   if (compareMode === 'swipe') {
     const dividerRect = elements.compareDivider.getBoundingClientRect();
-    if (e.clientX >= dividerRect.left && e.clientX <= dividerRect.right) {
-      return; // Click is on the divider area
-    }
+    if (event.clientX >= dividerRect.left && event.clientX <= dividerRect.right) return;
   }
-
-  // Determine which side we're dragging
-  const wrapper = e.currentTarget;
-  const isLeft = wrapper === elements.compareWrapperLeft;
-
   compareIsDragging = true;
-  compareDragSide = isLeft ? 'left' : 'right';
+  compareDragSide = event.currentTarget === elements.compareWrapperLeft ? 'left' : 'right';
   compareDragStart = {
-    x: e.clientX - comparePan[compareDragSide].x,
-    y: e.clientY - comparePan[compareDragSide].y
+    x: event.clientX - comparePan[compareDragSide].x,
+    y: event.clientY - comparePan[compareDragSide].y
   };
-
-  wrapper.classList.add('compare__image-wrapper--dragging');
+  event.currentTarget.classList.add('compare__image-wrapper--dragging');
 }
 
-function handleCompareDragMove(e) {
+function handleCompareDragMove(event) {
   if (!compareIsDragging || compareSwipeDragging) return;
-
-  const newX = e.clientX - compareDragStart.x;
-  const newY = e.clientY - compareDragStart.y;
-
-  // In overlay mode, allow independent movement for alignment
-  // In side-by-side and swipe modes, move both images together
+  const x = event.clientX - compareDragStart.x;
+  const y = event.clientY - compareDragStart.y;
   if (compareMode === 'overlay') {
-    comparePan[compareDragSide].x = newX;
-    comparePan[compareDragSide].y = newY;
+    comparePan[compareDragSide] = { x, y };
   } else {
-    comparePan.left.x = newX;
-    comparePan.left.y = newY;
-    comparePan.right.x = newX;
-    comparePan.right.y = newY;
+    comparePan.left = { x, y };
+    comparePan.right = { x, y };
   }
-
   applyCompareTransform();
 }
 
@@ -3614,34 +4484,24 @@ function resetCompareZoom() {
   applyCompareTransform();
 }
 
-// Swipe divider drag handling
-function handleSwipeDragStart(e) {
+function handleSwipeDragStart(event) {
   if (compareMode !== 'swipe') return;
-  e.preventDefault();
-  e.stopPropagation();
-
+  event.preventDefault();
+  event.stopPropagation();
   compareSwipeDragging = true;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
 }
 
-function handleSwipeDragMove(e) {
+function handleSwipeDragMove(event) {
   if (!compareSwipeDragging) return;
-
-  const imagesContainer = elements.compareModal.querySelector('.compare__images');
-  const rect = imagesContainer.getBoundingClientRect();
-
-  // Calculate percentage position
-  let percent = ((e.clientX - rect.left) / rect.width) * 100;
-  percent = Math.max(5, Math.min(95, percent)); // Clamp to 5-95%
-
-  compareSwipePosition = percent;
+  const rect = elements.compareModal.querySelector('.compare__images').getBoundingClientRect();
+  compareSwipePosition = Math.max(5, Math.min(95, ((event.clientX - rect.left) / rect.width) * 100));
   applySwipePosition();
 }
 
 function handleSwipeDragEnd() {
   if (!compareSwipeDragging) return;
-
   compareSwipeDragging = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
@@ -3650,262 +4510,255 @@ function handleSwipeDragEnd() {
 function applySwipePosition() {
   const leftPanel = elements.compareModal.querySelector('.compare__image-panel--left');
   const rightPanel = elements.compareModal.querySelector('.compare__image-panel--right');
-  const divider = elements.compareDivider;
-
-  if (leftPanel && rightPanel && divider) {
-    leftPanel.style.right = `${100 - compareSwipePosition}%`;
-    rightPanel.style.left = `${compareSwipePosition}%`;
-    divider.style.left = `${compareSwipePosition}%`;
-  }
+  leftPanel.style.right = `${100 - compareSwipePosition}%`;
+  rightPanel.style.left = `${compareSwipePosition}%`;
+  elements.compareDivider.style.left = `${compareSwipePosition}%`;
 }
 
 function setupCompareModal() {
-  // Close button
   elements.compareCloseBtn.addEventListener('click', hideCompare);
-
-  // Close on overlay click
-  elements.compareModal.addEventListener('click', (e) => {
-    if (e.target === elements.compareModal) hideCompare();
+  elements.compareModal.addEventListener('click', event => {
+    if (event.target === elements.compareModal) hideCompare();
   });
-
-  // Mode buttons
-  elements.compareModal.querySelectorAll('.compare__mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => setCompareMode(btn.dataset.mode));
+  elements.compareModal.querySelectorAll('.compare__mode-btn').forEach(button => {
+    button.addEventListener('click', () => setCompareMode(button.dataset.mode));
   });
-
-  // Action buttons
-  elements.compareKeepLeft.addEventListener('click', keepCompareLeft);
-  elements.compareKeepRight.addEventListener('click', keepCompareRight);
-
-  // Navigation buttons
+  elements.compareMarkLeft.addEventListener('click', () => void toggleCompareSide('left'));
+  elements.compareMarkRight.addEventListener('click', () => void toggleCompareSide('right'));
   elements.comparePrevBtn.addEventListener('click', () => navigateComparePair(-1));
   elements.compareNextBtn.addEventListener('click', () => navigateComparePair(1));
   elements.compareSwapBtn.addEventListener('click', swapCompareImages);
-
-  // Overlay slider
-  elements.compareOverlayRange.addEventListener('input', (e) => {
-    updateOverlayOpacity(e.target.value);
-  });
-
-  // Zoom/pan handlers on image wrappers
+  elements.compareOverlayRange.addEventListener('input', event => updateOverlayOpacity(event.target.value));
   [elements.compareWrapperLeft, elements.compareWrapperRight].forEach(wrapper => {
     wrapper.addEventListener('wheel', handleCompareWheel, { passive: false });
     wrapper.addEventListener('mousedown', handleCompareDragStart);
     wrapper.addEventListener('dblclick', resetCompareZoom);
   });
-
   document.addEventListener('mousemove', handleCompareDragMove);
   document.addEventListener('mouseup', handleCompareDragEnd);
-
-  // Swipe divider handlers
   elements.compareDivider.addEventListener('mousedown', handleSwipeDragStart);
   document.addEventListener('mousemove', handleSwipeDragMove);
   document.addEventListener('mouseup', handleSwipeDragEnd);
 }
 
-
-async function confirmDelete(permanent = false) {
-  hideDeleteModal();
-
-  // Send paths directly from frontend - what you see marked is what gets deleted
-  const pathsToDelete = Array.from(markedFiles);
-
-  try {
-    const response = await fetch(`${API_BASE}/api/delete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        permanent: permanent,
-        paths: pathsToDelete
-      })
-    });
-
-    const data = await response.json();
-
-    const deletedCount = data.moved || data.deleted || 0;
-
-    if (deletedCount > 0) {
-      if (permanent) {
-        showToast(`Permanently deleted ${deletedCount} files`, 'success');
-        canUndo = false; // Can't undo permanent deletes
-      } else {
-        showToast(`Moved ${deletedCount} files to ${data.dupes_folder}`, 'success');
-        canUndo = true;
-      }
-
-      // Remove deleted files from clusters
-      const deletedPaths = new Set(
-        (data.details.moved || data.details.deleted || []).map(m => m.original || m.path)
-      );
-      clusters.forEach(cluster => {
-        cluster.members = cluster.members.filter(m => !deletedPaths.has(m.path));
-      });
-      clusters = clusters.filter(c => c.members.length > 1);
-
-      markedFiles.clear();
-      currentClusterIndex = 0;
-
-      if (clusters.length === 0) {
-        showToast('All duplicates processed!', 'success');
-        showScreen('setup');
-      } else {
-        renderCurrentCluster();
-      }
-    }
-
-    if (data.failed > 0) {
-      const action = permanent ? 'delete' : 'move';
-      showToast(`Failed to ${action} ${data.failed} files`, 'error');
-    }
-  } catch (error) {
-    showToast(error.message, 'error');
+function trapQuarantineFocus(event) {
+  const focusable = Array.from(elements.quarantineDialog.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+  if (!focusable.length) {
+    event.preventDefault();
+    elements.quarantineDialog.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
-async function undoDelete() {
-  try {
-    const response = await fetch(`${API_BASE}/api/undo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId })
-    });
-
-    const data = await response.json();
-
-    if (data.restored > 0) {
-      showToast(`Restored ${data.restored} files`, 'success');
-      canUndo = data.can_undo;
-      // Refresh clusters
-      const clusterResponse = await fetch(`${API_BASE}/api/clusters/${sessionId}`);
-      const clusterData = await clusterResponse.json();
-      clusters = clusterData.clusters || [];
-      renderCurrentCluster();
+function setupKeyboardNavigation() {
+  document.addEventListener('keydown', event => {
+    if (quarantineModalOpen()) {
+      if (event.key === 'Escape' && !operationRequestPending) {
+        event.preventDefault();
+        hideQuarantineModal();
+      } else if (event.key === 'Tab') {
+        trapQuarantineFocus(event);
+      } else {
+        event.stopPropagation();
+      }
+      return;
     }
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
+
+    const compareOpen = elements.compareModal.classList.contains('compare-overlay--visible');
+    if (compareOpen) {
+      if (event.key === 'Escape') hideCompare();
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); navigateComparePair(-1); }
+      else if (event.key === 'ArrowRight') { event.preventDefault(); navigateComparePair(1); }
+      else if (event.key.toLowerCase() === 's') swapCompareImages();
+      else if (event.key === '0') resetCompareZoom();
+      else if (event.key === '+' || event.key === '=') { compareZoom = Math.min(compareZoom * 1.2, 5); applyCompareTransform(); }
+      else if (event.key === '-') { compareZoom = Math.max(compareZoom / 1.2, 0.5); applyCompareTransform(); }
+      return;
+    }
+
+    if (!screens.results.classList.contains('screen--active')) return;
+    if (event.target.closest('button, details, summary, input, select, textarea')) return;
+    if (event.key === 'ArrowLeft') navigateCluster(-1);
+    else if (event.key === 'ArrowRight') navigateCluster(1);
+    else if (event.key.toLowerCase() === 'c') {
+      const entry = filteredClusterEntries()[currentClusterIndex];
+      const first = entry?.members.find(member => member.id !== entry.reference?.id);
+      if (first) showCompare(first.id);
+    }
+  }, true);
 }
 
-function startOver() {
+async function startOver() {
+  if (recoveryRequired || sessionRestoreBlocked || canUndo || operationRequestPending || markingRequestPending) return;
+  const oldSession = sessionId;
+  const wasActive = ['starting', 'scanning', 'paused', 'reconnecting', 'cancelling'].includes(scanState);
+  closeEventSource();
+  scanGeneration += 1;
+  if (oldSession && wasActive) {
+    try {
+      await apiFetch('/api/scan-control', { method: 'POST', body: { session_id: oldSession, action: 'cancel' } });
+    } catch (error) {
+      showToast(`Could not cancel previous scan: ${error.message}`, 'error');
+      return;
+    }
+  }
+  rememberSession(null);
+  folderToken = null;
+  selectedFolderDisplay = '';
   clusters = [];
-  markedFiles.clear();
+  markedResultIds.clear();
   currentClusterIndex = 0;
   canUndo = false;
-  selectedFolder = '';
+  recoveryRequired = false;
+  recoveryManifestPath = '';
+  recoverySummary = '';
+  sessionRestoreBlocked = false;
+  sessionRestoreError = '';
+  renderRecoveryNotice();
+  scanState = 'idle';
+  cancelRequestPending = false;
+  currentFilter = 'all';
+  hideCompare();
+  hideQuarantineModal();
+  hideContextMenu();
+  clearOperationFailures();
   elements.pathText.textContent = '';
+  elements.pathText.removeAttribute('title');
   elements.pathPreview.classList.remove('setup__path-preview--visible');
   elements.startScanBtn.disabled = true;
+  elements.filterMainBtn.textContent = 'Filter: All';
+  elements.filterMenu.querySelectorAll('[data-filter]').forEach(option => {
+    const selected = option.dataset.filter === 'all';
+    option.classList.toggle('ui-menu__item--selected', selected);
+    option.setAttribute('aria-checked', String(selected));
+  });
   showScreen('setup');
 }
 
+async function restoreRememberedSession() {
+  const storedSession = rememberedSession();
+  if (!storedSession || !apiTokenReady()) return;
 
-/* -- KEYBOARD NAVIGATION ------------------------------------------------- */
-function setupKeyboardNav() {
-  document.addEventListener('keydown', (e) => {
-    // Check which modals are open
-    const compareOpen = elements.compareModal.classList.contains('compare-overlay--visible');
-
-    if (compareOpen) {
-      // Comparison modal keyboard controls
-      if (e.key === 'Escape') {
-        hideCompare();
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        navigateComparePair(-1);
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        navigateComparePair(1);
-      } else if (e.key === '1') {
-        // Keep left (mark right for deletion)
-        keepCompareLeft();
-      } else if (e.key === '2') {
-        // Keep right (mark left for deletion)
-        keepCompareRight();
-      } else if (e.key === 's' || e.key === 'S') {
-        // Swap images
-        swapCompareImages();
-      } else if (e.key === ' ') {
-        // Toggle view mode
-        e.preventDefault();
-        const modes = ['side-by-side', 'overlay', 'swipe'];
-        const currentIndex = modes.indexOf(compareMode);
-        const nextMode = modes[(currentIndex + 1) % modes.length];
-        setCompareMode(nextMode);
-      } else if (e.key === '0') {
-        // Reset zoom
-        resetCompareZoom();
-      } else if (e.key === '+' || e.key === '=') {
-        // Zoom in
-        compareZoom = Math.min(compareZoom * 1.2, 5);
-        applyCompareTransform();
-      } else if (e.key === '-') {
-        // Zoom out
-        compareZoom = Math.max(compareZoom / 1.2, 0.5);
-        applyCompareTransform();
-      }
-    } else if (screens.results.classList.contains('screen--active')) {
-      // Results screen keyboard controls
-      if (e.key === 'ArrowLeft') {
-        navigateCluster(-1);
-      } else if (e.key === 'ArrowRight') {
-        navigateCluster(1);
-      } else if (e.key === 'c' || e.key === 'C') {
-        // Open comparison with first non-reference image
-        const cluster = clusters[currentClusterIndex];
-        if (cluster && cluster.members.length >= 2) {
-          const firstNonRef = cluster.members.findIndex(m => !m.is_representative);
-          if (firstNonRef >= 0) {
-            showCompare(firstNonRef);
-          }
-        }
-      }
+  elements.browseFolderBtn.disabled = true;
+  // Retain the opaque ID while verification is in flight so heartbeats can
+  // keep a recoverable server-side session alive even across a transient GET.
+  rememberSession(storedSession);
+  try {
+    const payload = await apiFetch(`/api/clusters/${encodeURIComponent(storedSession)}`);
+    sessionRestoreBlocked = false;
+    sessionRestoreError = '';
+    const status = String(payload.status || '').toLowerCase();
+    if (!['scanning', 'paused', 'cancelling', 'complete'].includes(status)) {
+      rememberSession(null);
+      return;
     }
-  });
+
+    rememberSession(storedSession);
+    setAuthoritativeState(payload, { requireClusters: true, requireMarks: true });
+    if (Array.isArray(payload.errors) && payload.errors.length) {
+      renderFailureRegion(elements.operationFailures, payload.errors, 'Some files or comparisons were skipped safely:');
+    } else {
+      clearOperationFailures();
+    }
+
+    if (status === 'complete') {
+      scanState = 'complete';
+      showResults();
+      showToast(canUndo ? 'Results restored. Undo is still available.' : 'Results restored.', 'info');
+      return;
+    }
+
+    scanGeneration += 1;
+    const generation = scanGeneration;
+    scanState = status;
+    resetScanDisplay();
+    const progress = Math.max(0, Math.min(100, Number(payload.progress) || 0));
+    elements.progressFill.style.width = `${progress}%`;
+    updateScanHeading(payload.message || 'Restoring scan...');
+    if (status === 'paused') {
+      elements.pauseScanBtn.textContent = 'Resume';
+      elements.scanLoader.classList.add('scanning__loader--hidden');
+      elements.timeEstimate.textContent = 'Paused';
+    } else if (status === 'cancelling') {
+      cancelRequestPending = true;
+      elements.pauseScanBtn.disabled = true;
+      elements.cancelScanBtn.disabled = true;
+      setDisplayText(elements.scanHeading, 'Cancelling scan...');
+    }
+    showScreen('scanning');
+    listenToEvents(storedSession, generation);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      rememberSession(null);
+      sessionRestoreBlocked = false;
+      sessionRestoreError = '';
+      renderRecoveryNotice();
+    } else {
+      sessionRestoreBlocked = true;
+      sessionRestoreError = `Could not restore the previous session: ${error.message}`;
+      renderRecoveryNotice();
+      showToast(sessionRestoreError, 'warning');
+    }
+  } finally {
+    elements.browseFolderBtn.disabled = recoveryRequired || sessionRestoreBlocked;
+    elements.startScanBtn.disabled = recoveryRequired || sessionRestoreBlocked || !folderToken;
+  }
 }
 
-
-/* -- INITIALIZATION ------------------------------------------------------ */
-function init() {
+function initialise() {
   initTheme();
   setupFolderInput();
   setupThresholdSlider();
-  setupKeyboardNav();
   setupSplitButtons();
   setupCompareModal();
+  setupKeyboardNavigation();
 
-  // Event listeners
   elements.themeToggle.addEventListener('click', toggleTheme);
-  elements.startScanBtn.addEventListener('click', startScan);
-  elements.pauseScanBtn.addEventListener('click', togglePause);
-  elements.cancelScanBtn.addEventListener('click', cancelScan);
+  elements.startScanBtn.addEventListener('click', () => void startScan());
+  elements.pauseScanBtn.addEventListener('click', () => void togglePause());
+  elements.cancelScanBtn.addEventListener('click', () => void cancelScan());
   elements.firstClusterBtn.addEventListener('click', () => goToCluster(0));
   elements.prevClusterBtn.addEventListener('click', () => navigateCluster(-1));
   elements.nextClusterBtn.addEventListener('click', () => navigateCluster(1));
-  elements.lastClusterBtn.addEventListener('click', () => goToCluster(clusters.length - 1));
-  elements.deleteMarkedBtn.addEventListener('click', showDeleteModal);
-  elements.cancelDeleteBtn.addEventListener('click', hideDeleteModal);
-  elements.moveToFolderBtn.addEventListener('click', () => confirmDelete(false));
-  elements.permanentDeleteBtn.addEventListener('click', () => confirmDelete(true));
-  elements.undoBtn.addEventListener('click', undoDelete);
-  elements.startOverBtn.addEventListener('click', startOver);
+  elements.lastClusterBtn.addEventListener('click', () => goToCluster(filteredClusterEntries().length - 1));
+  elements.reviewQuarantineBtn.addEventListener('click', () => void prepareQuarantineReview());
+  elements.cancelQuarantineBtn.addEventListener('click', hideQuarantineModal);
+  elements.commitQuarantineBtn.addEventListener('click', () => void commitQuarantine());
+  elements.undoBtn.addEventListener('click', () => void undoQuarantine());
+  elements.startOverBtn.addEventListener('click', () => void startOver());
 
-  // Close modal on overlay click
-  elements.deleteModal.addEventListener('click', (e) => {
-    if (e.target === elements.deleteModal) hideDeleteModal();
+  elements.contextMenu.querySelectorAll('[data-action]').forEach(item => {
+    item.addEventListener('click', () => void handleContextMenuAction(item.dataset.action));
   });
-
-  // Context menu event listeners
-  elements.contextMenu.querySelectorAll('.context-menu__item').forEach(item => {
-    item.addEventListener('click', () => handleContextMenuAction(item.dataset.action));
-  });
-
-  // Hide context menu on click outside or scroll
   document.addEventListener('click', hideContextMenu);
   document.addEventListener('scroll', hideContextMenu, true);
+
+  if (!apiTokenReady()) {
+    showToast('The server did not inject an API token. Actions are disabled.', 'error');
+    elements.browseFolderBtn.disabled = true;
+    elements.startScanBtn.disabled = true;
+  } else {
+    void restoreRememberedSession();
+  }
+
+  window.setInterval(() => {
+    if (apiTokenReady()) {
+      const body = sessionId ? { session_id: sessionId } : {};
+      void apiFetch('/api/heartbeat', { method: 'POST', body }).catch(() => {});
+    }
+  }, 5000);
 }
 
-init();
+initialise();
   </script>
 </body>
 </html>

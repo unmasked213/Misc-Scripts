@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Media Library</title>
+    <link rel="stylesheet" href="../kit/tokens.css">
+    <link rel="stylesheet" href="library.css">
+</head>
+<body>
+<div class="app">
+
+    <header class="topbar">
+        <div class="topbar__title">
+            <strong>Media Library</strong>
+            <span id="source" class="muted"></span>
+        </div>
+        <div class="topbar__actions">
+            <button id="scan">Scan current tab</button>
+            <button id="scanAll">Scan all tabs</button>
+            <button id="clear">Clear</button>
+            <button id="diag" title="Copy a redacted diagnostic timeline">Diagnostics</button>
+        </div>
+    </header>
+
+    <div class="toolbar">
+        <div class="seg" id="kindFilter" role="group" aria-label="Media type">
+            <button data-kind="all" class="on">All <span class="n" data-count="all">0</span></button>
+            <button data-kind="image">Images <span class="n" data-count="image">0</span></button>
+            <button data-kind="video">Video <span class="n" data-count="video">0</span></button>
+            <button data-kind="stream">Streams <span class="n" data-count="stream">0</span></button>
+            <button data-kind="audio">Audio <span class="n" data-count="audio">0</span></button>
+        </div>
+
+        <label class="ctl">Min edge
+            <input type="range" id="minEdge" min="0" max="2400" step="100" value="0">
+            <output id="minEdgeOut" class="mono">0</output>
+        </label>
+
+        <label class="ctl">Sort
+            <select id="sort">
+                <option value="area">Largest</option>
+                <option value="bytes">Filesize</option>
+                <option value="added">Newest found</option>
+                <option value="confidence">Confidence</option>
+                <option value="name">Name</option>
+            </select>
+        </label>
+
+        <label class="ctl"><input type="checkbox" id="hideFiltered"> Hide filtered</label>
+        <label class="ctl"><input type="checkbox" id="stack" checked> Stack similar</label>
+        <label class="ctl"><input type="checkbox" id="hideDone"> Hide downloaded</label>
+
+        <label class="ctl">Size
+            <input type="range" id="density" min="96" max="360" step="8" value="168">
+        </label>
+    </div>
+
+    <div id="notice" class="notice" role="status" hidden></div>
+
+    <main class="body">
+        <section class="gridwrap" id="gridwrap" tabindex="0" aria-label="Media grid">
+            <div id="empty" class="empty" hidden></div>
+        </section>
+
+        <aside class="inspector" id="inspector">
+            <div class="inspector__empty muted">Select an item to inspect it.</div>
+        </aside>
+    </main>
+
+    <footer class="transfer" id="transfer">
+        <div class="transfer__left">
+            <span id="selInfo">0 selected</span>
+            <button id="selAll">Select all</button>
+            <button id="selNone">None</button>
+            <button id="selInvert">Invert</button>
+        </div>
+        <div class="transfer__bar" id="bar" hidden>
+            <div class="seg-bar">
+                <i class="s-done" style="width:0"></i>
+                <i class="s-fail" style="width:0"></i>
+                <i class="s-live" style="width:0"></i>
+            </div>
+            <span id="barText" class="mono"></span>
+        </div>
+        <div class="transfer__right">
+            <input type="text" id="template" class="mono" spellcheck="false"
+                   title="Output path template" style="width:340px">
+            <button id="probe" title="Check real sizes and content types before downloading">Preflight</button>
+            <button id="download" class="primary">Download</button>
+        </div>
+    </footer>
+
+    <div id="ledger" class="ledger" hidden></div>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

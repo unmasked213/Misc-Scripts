@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "sort": "date_modified",
+    "orientation": "accurate"
+  },
+  "automation": {
+    "enabled": true,
+    "debounce_seconds": 5,
+    "reconciliation_interval_seconds": 900,
+    "source_poll_interval_seconds": 5,
+    "config_poll_interval_seconds": 2,
+    "watcher_retry_seconds": 30
+  },
+  "watched_roots": [],
+  "merged_playlists": []
+}
